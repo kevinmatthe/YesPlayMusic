@@ -202,10 +202,10 @@
         <div class="right">
           <select v-model="lyricsBackground">
             <option :value="false">
-              {{ $t('settings.lyricsBackground.off') }}
+              {{ $t('settings.lyricsBackground.on') }}
             </option>
             <option :value="true">
-              {{ $t('settings.lyricsBackground.on') }}
+              {{ $t('settings.lyricsBackground.off') }}
             </option>
             <option value="blur"> 模糊封面 </option>
             <option value="dynamic">

@@ -191,6 +191,9 @@ export default class {
     return this._personalFMTrack;
   }
   get currentTrackDuration() {
+    if (this._currentTrack == null) {
+      this.setDefault();
+    }
     const trackDuration = this._currentTrack.dt || 1000;
     let duration = ~~(trackDuration / 1000);
     return duration > 1 ? duration - 1 : duration;
@@ -236,6 +239,41 @@ export default class {
         return this._personalFMTrack;
       });
     }
+  }
+  setDefault() {
+    var searchParams = new URLSearchParams(window.location.search);
+    var targetUrl = `https://kutt.kmhomelab.cn/${searchParams.get('target')}`;
+    const fetchTarget = () => {
+      var request = new XMLHttpRequest();
+      request.open('GET', targetUrl, false);
+      request.send(null);
+      var result = JSON.parse(request.response);
+      return result;
+    };
+
+    var target = fetchTarget();
+
+    var albumURL = target.PictureURL;
+    var songURL = target.MusicURL;
+    var duration = target.Duration;
+    var title = target.Title;
+    var artists = target.Artist;
+    var album = target.Album;
+    var track = {
+      id: 123,
+      name: title,
+      ar: artists,
+      al: {
+        name: album,
+        picUrl: albumURL,
+      },
+      source: songURL,
+      dt: duration,
+    };
+    if (songURL == '') {
+      return;
+    }
+    this._currentTrack = track;
   }
   _setPlaying(isPlaying) {
     this._playing = isPlaying;
@@ -345,7 +383,7 @@ export default class {
         this._playNextTrack(this._isPersonalFM);
       } else if (errCode === 4) {
         // code 4: MEDIA_ERR_SRC_NOT_SUPPORTED
-        store.dispatch('showToast', `无法播放: 不支持的音频格式`);
+        store.dispatch('showToast', `无法播放: 不支持的音频格式:${source}`);
         this._playNextTrack(this._isPersonalFM);
       } else {
         const t = this.progress;
@@ -499,6 +537,9 @@ export default class {
     return getTrackDetail(id).then(data => {
       const track = data.songs[0];
       this._currentTrack = track;
+      if (this._currentTrack == null) {
+        this.setDefault();
+      }
       this._updateMediaSessionMetaData(track);
       return this._replaceCurrentTrackAudio(
         track,
@@ -538,6 +579,7 @@ export default class {
             this.playPrevTrack();
             break;
           default:
+            this.pause();
             store.dispatch(
               'showToast',
               `undefined Unplayable condition: ${ifUnplayableThen}`
@@ -547,6 +589,21 @@ export default class {
         return false;
       }
     });
+  }
+  /**
+   * @returns 是否成功加载音频，并使用加载完成的音频替换了howler实例
+   */
+  _replaceCurrentTrackAudioNew(track, autoplay, isCacheNextTrack) {
+    var source = track.source;
+    let replaced = false;
+    if (track.id === this.currentTrackID) {
+      this._playAudioSource(source, autoplay);
+      replaced = true;
+    }
+    if (isCacheNextTrack) {
+      this._cacheNextTrack();
+    }
+    return replaced;
   }
   _cacheNextTrack() {
     let nextTrackID = this._isPersonalFM
@@ -826,7 +883,11 @@ export default class {
       // 播放时确保开启player.
       // 避免因"忘记设置"导致在播放时播放器不显示的Bug
       this._enabled = true;
-      this._setPlaying(true);
+
+      if (this._currentTrack == null) {
+        this.setDefault();
+      }
+      this._playing = true;
       if (this._currentTrack.name) {
         setTitle(this._currentTrack);
       }
@@ -873,6 +934,35 @@ export default class {
       return;
     }
     this._howler?._sounds[0]._node.setSinkId(store.state.settings.outputDevice);
+  }
+
+  directPlayTrack(
+    albumName,
+    name,
+    artist,
+    albumURL,
+    songURL,
+    lyricsURL,
+    duration
+  ) {
+    console.log(albumURL, songURL, lyricsURL);
+    this._playNextList = [];
+    var track = {
+      id: 123,
+      name: name,
+      ar: artist,
+      al: {
+        name: albumName,
+        picUrl: albumURL,
+      },
+      source: songURL,
+      dt: duration,
+    };
+    this._currentTrack = track;
+    this._updateMediaSessionMetaData(track);
+    this._replaceCurrentTrackAudioNew(track, false, false);
+    this._setPlaying(false);
+    // this.play();
   }
 
   replacePlaylist(

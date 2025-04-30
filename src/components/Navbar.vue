@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div hidden>
     <nav :class="{ 'has-custom-titlebar': hasCustomTitlebar }">
       <Win32Titlebar v-if="enableWin32Titlebar" />
       <LinuxTitlebar v-if="enableLinuxTitlebar" />

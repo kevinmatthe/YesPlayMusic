@@ -1,23 +1,9 @@
 <template>
   <div id="app" :class="{ 'user-select-none': userSelectNone }">
-    <Scrollbar v-show="!showLyrics" ref="scrollbar" />
-    <Navbar v-show="showNavbar" ref="navbar" />
-    <main
-      ref="main"
-      :style="{ overflow: enableScrolling ? 'auto' : 'hidden' }"
-      @scroll="handleScroll"
-    >
-      <keep-alive>
-        <router-view v-if="$route.meta.keepAlive"></router-view>
-      </keep-alive>
-      <router-view v-if="!$route.meta.keepAlive"></router-view>
-    </main>
     <transition name="slide-up">
       <Player v-if="enablePlayer" v-show="showPlayer" ref="player" />
     </transition>
     <Toast />
-    <ModalAddTrackToPlaylist v-if="isAccountLoggedIn" />
-    <ModalNewPlaylist v-if="isAccountLoggedIn" />
     <transition v-if="enablePlayer" name="slide-up">
       <Lyrics v-show="showLyrics" />
     </transition>
@@ -25,10 +11,6 @@
 </template>
 
 <script>
-import ModalAddTrackToPlaylist from './components/ModalAddTrackToPlaylist.vue';
-import ModalNewPlaylist from './components/ModalNewPlaylist.vue';
-import Scrollbar from './components/Scrollbar.vue';
-import Navbar from './components/Navbar.vue';
 import Player from './components/Player.vue';
 import Toast from './components/Toast.vue';
 import { ipcRenderer } from './electron/ipcRenderer';
@@ -39,13 +21,9 @@ import { mapState } from 'vuex';
 export default {
   name: 'App',
   components: {
-    Navbar,
     Player,
     Toast,
-    ModalAddTrackToPlaylist,
-    ModalNewPlaylist,
     Lyrics,
-    Scrollbar,
   },
   data() {
     return {
@@ -70,7 +48,7 @@ export default {
       );
     },
     enablePlayer() {
-      return this.player.enabled && this.$route.name !== 'lastfmCallback';
+      return true;
     },
     showNavbar() {
       return this.$route.name !== 'lastfmCallback';
@@ -80,6 +58,38 @@ export default {
     if (this.isElectron) ipcRenderer(this);
     window.addEventListener('keydown', this.handleKeydown);
     this.fetchData();
+  },
+  mounted: function () {
+    var searchParams = new URLSearchParams(window.location.search);
+    var targetUrl = `https://kutt.kmhomelab.cn/${searchParams.get('target')}`;
+    const fetchTarget = () => {
+      var request = new XMLHttpRequest();
+      request.open('GET', targetUrl, false);
+      request.send(null);
+      var result = JSON.parse(request.response);
+      return result;
+    };
+
+    var target = fetchTarget();
+
+    var musicPicUrl = target.PictureURL;
+    var musicSongUrl = target.MusicURL;
+    var lyricsUrl = target.LyricsURL;
+    var duration = target.Duration;
+    var albumName = target.Album;
+    var artist = target.Artist;
+    var name = target.Title;
+    this.$store.commit('toggleLyrics');
+    this.player.directPlayTrack(
+      albumName,
+      name,
+      artist,
+      musicPicUrl,
+      musicSongUrl,
+      lyricsUrl,
+      duration
+    );
+    console.log(musicPicUrl, musicSongUrl, lyricsUrl);
   },
   methods: {
     handleKeydown(e) {

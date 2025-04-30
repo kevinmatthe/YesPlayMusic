@@ -12,7 +12,7 @@ module.exports = {
     port: process.env.DEV_SERVER_PORT || 8080,
     proxy: {
       '^/api': {
-        target: 'http://localhost:3000',
+        target: 'http://localhost:3335',
         changeOrigin: true,
         pathRewrite: {
           '^/api': '/',
@@ -42,7 +42,14 @@ module.exports = {
       chunks: ['main', 'chunk-vendors', 'chunk-common', 'index'],
     },
   },
+  configureWebpack: {
+    optimization: {
+      minimize: false
+    }
+  },
   chainWebpack(config) {
+    config.devtool('source-map');
+    config.optimization.minimize(false);
     config.module.rules.delete('svg');
     config.module.rule('svg').exclude.add(resolve('src/assets/icons')).end();
     config.module

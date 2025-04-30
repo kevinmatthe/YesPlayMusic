@@ -61,9 +61,9 @@ export function cacheTrackSource(trackInfo, url, bitRate, from = 'netease') {
   if (cover.slice(0, 5) !== 'https') {
     cover = 'https' + cover.slice(4);
   }
-  axios.get(`${cover}?param=512y512`);
-  axios.get(`${cover}?param=224y224`);
-  axios.get(`${cover}?param=1024y1024`);
+  axios.get(`${cover}`);
+  axios.get(`${cover}`);
+  axios.get(`${cover}`);
   return axios
     .get(url, {
       responseType: 'arraybuffer',
@@ -133,6 +133,7 @@ export function cacheLyric(id, lyrics) {
 }
 
 export function getLyricFromCache(id) {
+  // return null;
   return db.lyric.get(Number(id)).then(result => {
     if (!result) return undefined;
     return result.lyrics;

@@ -4,7 +4,6 @@ import { mapTrackPlayableStatus } from '@/utils/common';
 import {
   cacheTrackDetail,
   getTrackDetailFromCache,
-  cacheLyric,
   getLyricFromCache,
 } from '@/utils/db';
 
@@ -74,17 +73,23 @@ export function getTrackDetail(ids) {
  * @param {number} id - 音乐 id
  */
 export function getLyric(id) {
+  var searchParams = new URLSearchParams(window.location.search);
+  var targetUrl = `https://kutt.kmhomelab.cn/${searchParams.get('target')}`;
+  const fetchTarget = () => {
+    var request = new XMLHttpRequest();
+    request.open('GET', targetUrl, false);
+    request.send(null);
+    var result = JSON.parse(request.response);
+    return result.LyricsURL;
+  };
+  var lyricsUrl = fetchTarget();
+
   const fetchLatest = () => {
-    return request({
-      url: '/lyric',
-      method: 'get',
-      params: {
-        id,
-      },
-    }).then(result => {
-      cacheLyric(id, result);
-      return result;
-    });
+    var request = new XMLHttpRequest();
+    request.open('GET', lyricsUrl, false);
+    request.send(null);
+    var result = JSON.parse(request.response);
+    return result;
   };
 
   fetchLatest();

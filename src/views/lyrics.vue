@@ -5,16 +5,7 @@
       :class="{ 'no-lyric': noLyric }"
       :data-theme="theme"
     >
-      <div
-        v-if="
-          (settings.lyricsBackground === 'blur') |
-            (settings.lyricsBackground === 'dynamic')
-        "
-        class="lyrics-background"
-        :class="{
-          'dynamic-background': settings.lyricsBackground === 'dynamic',
-        }"
-      >
+      <div class="lyrics-background">
         <div
           class="top-right"
           :style="{ backgroundImage: `url(${bgImageUrl})` }"
@@ -48,35 +39,15 @@
             <div class="top-part">
               <div class="track-info">
                 <div class="title" :title="currentTrack.name">
-                  <router-link
-                    v-if="hasList()"
-                    :to="`${getListPath()}`"
-                    @click.native="toggleLyrics"
-                    >{{ currentTrack.name }}
-                  </router-link>
-                  <span v-else>
+                  <span>
                     {{ currentTrack.name }}
                   </span>
                 </div>
                 <div class="subtitle">
-                  <router-link
-                    v-if="artist.id !== 0"
-                    :to="`/artist/${artist.id}`"
-                    @click.native="toggleLyrics"
-                    >{{ artist.name }}
-                  </router-link>
-                  <span v-else>
+                  <span>
                     {{ artist.name }}
                   </span>
-                  <span v-if="album.id !== 0">
-                    -
-                    <router-link
-                      :to="`/album/${album.id}`"
-                      :title="album.name"
-                      @click.native="toggleLyrics"
-                      >{{ album.name }}
-                    </router-link>
-                  </span>
+                  <span v-if="album.id !== 0">- {{ album.name }}</span>
                 </div>
               </div>
               <div class="top-right">
@@ -106,6 +77,7 @@
                   <button-icon
                     :title="$t('player.like')"
                     @click.native="likeATrack(player.currentTrack.id)"
+                    hidden
                   >
                     <svg-icon
                       :icon-class="
@@ -116,6 +88,7 @@
                   <button-icon
                     :title="$t('contextMenu.addToPlaylist')"
                     @click.native="addToPlaylist"
+                    hidden
                   >
                     <svg-icon icon-class="plus" />
                   </button-icon>
@@ -158,6 +131,7 @@
                 <svg-icon
                   v-show="player.repeatMode !== 'one'"
                   icon-class="repeat"
+                  hidden
                 />
                 <svg-icon
                   v-show="player.repeatMode === 'one'"
@@ -169,6 +143,7 @@
                   v-show="!player.isPersonalFM"
                   :title="$t('player.previous')"
                   @click.native="playPrevTrack"
+                  hidden
                 >
                   <svg-icon icon-class="previous" />
                 </button-icon>
@@ -176,6 +151,7 @@
                   v-show="player.isPersonalFM"
                   title="不喜欢"
                   @click.native="moveToFMTrash"
+                  hidden
                 >
                   <svg-icon icon-class="thumbs-down" />
                 </button-icon>
@@ -189,6 +165,7 @@
                 <button-icon
                   :title="$t('player.next')"
                   @click.native="playNextTrack"
+                  hidden
                 >
                   <svg-icon icon-class="next" />
                 </button-icon>
@@ -198,6 +175,7 @@
                 :title="$t('player.shuffle')"
                 :class="{ active: player.shuffle }"
                 @click.native="switchShuffle"
+                hidden
               >
                 <svg-icon icon-class="shuffle" />
               </button-icon>
@@ -263,7 +241,7 @@
           </div>
         </transition>
       </div>
-      <div class="close-button" @click="toggleLyrics">
+      <div class="close-button" @click="toggleLyrics" hidden>
         <button>
           <svg-icon icon-class="arrow-down" />
         </button>
@@ -321,10 +299,10 @@ export default {
       },
     },
     imageUrl() {
-      return this.player.currentTrack?.al?.picUrl + '?param=1024y1024';
+      return this.player.currentTrack?.al?.picUrl;
     },
     bgImageUrl() {
-      return this.player.currentTrack?.al?.picUrl + '?param=512y512';
+      return this.player.currentTrack?.al?.picUrl;
     },
     isShowLyricTypeSwitch() {
       return this.romalyric.length > 0 && this.tlyric.length > 0;
@@ -418,6 +396,9 @@ export default {
   },
   watch: {
     currentTrack() {
+      if (this.player._currentTrack == null) {
+        this.player.setDefault();
+      }
       this.getLyric();
       this.getCoverColor();
     },

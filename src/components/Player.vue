@@ -28,21 +28,13 @@
           <img
             :src="currentTrack.al && currentTrack.al.picUrl | resizeImage(224)"
             loading="lazy"
-            @click="goToAlbum"
           />
           <div class="track-info" :title="audioSource">
-            <div
-              :class="['name', { 'has-list': hasList() }]"
-              @click="hasList() && goToList()"
-            >
+            <div :class="['name', { 'has-list': hasList() }]">
               {{ currentTrack.name }}
             </div>
             <div class="artist">
-              <span
-                v-for="(ar, index) in currentTrack.ar"
-                :key="ar.id"
-                @click="ar.id && goToArtist(ar.id)"
-              >
+              <span v-for="(ar, index) in currentTrack.ar" :key="ar.id">
                 <span :class="{ ar: ar.id }"> {{ ar.name }} </span
                 ><span v-if="index !== currentTrack.ar.length - 1">, </span>
               </span>
