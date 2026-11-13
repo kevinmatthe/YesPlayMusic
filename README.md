@@ -1,272 +1,84 @@
-<br />
-<p align="center">
-  <a href="https://music.qier222.com" target="blank">
-    <img src="images/logo.png" alt="Logo" width="156" height="156">
-  </a>
-  <h2 align="center" style="font-weight: 600">YesPlayMusic</h2>
+# BetaGo Music Web
 
-  <p align="center">
-    高颜值的第三方网易云播放器
-    <br />
-    <a href="https://music.qier222.com" target="blank"><strong>🌎 访问DEMO</strong></a>&nbsp;&nbsp;|&nbsp;&nbsp;
-    <a href="#%EF%B8%8F-安装" target="blank"><strong>📦️ 下载安装包</strong></a>&nbsp;&nbsp;|&nbsp;&nbsp;
-    <a href="https://t.me/yesplaymusic" target="blank"><strong>💬 加入交流群</strong></a>
-    <br />
-    <br />
-  </p>
-</p>
+独立音乐库与网页播放器，按本次已授权的现代前端重写，使用 Vue 3、TypeScript、Vite、Pinia 和原生 HTML Audio。YesPlayMusic 作为功能和交互参考；当前构建目标是网页，不再打包 Electron。部署目标是自有服务器上的独立服务，不以 Vercel 作为交付目标。
 
-[![Library][library-screenshot]](https://music.qier222.com)
+网页通过同源 `/music-api/v1` 调用 BetaGo 的独立 Go 音乐模块，个人数据写入自己的 PostgreSQL 数据库。曲库和音源是可替换的适配器：默认匿名，也可显式配置运营者已有的网易云服务端登录态或自有 MinIO 歌曲缓存。网页用户不需要网易云登录、二维码或个人 cookie；服务端音源授权与个人音乐空间的身份完全分开。
 
+## 使用与身份
 
-## 全新版本
-全新2.0 Alpha测试版已发布，欢迎前往 [Releases](https://github.com/qier222/YesPlayMusic/releases) 页面下载。
-当前版本将会进入维护模式，除重大bug修复外，不会再更新新功能。
+- 自有歌单增删改、歌曲加入/移除/排序/去重，喜欢、历史与清空。
+- 设备队列与位置恢复，全局播放器、逐曲异步歌词、稳定歌曲链接。
+- 只读分享与撤销，导入复制到自己的音乐库，版本化 JSON 导入/导出。
+- 飞书 H5 在应用已配置且运行环境允许时，使用临时授权码由后端验证身份；普通浏览器和无法授权的环境仍可使用游客会话。客户端 URL 中的 `open_id` 或 `owner_id` 不作为身份凭据。
+- 游客身份依赖当前浏览器会话。请保存恢复码，或导出 JSON 后在另一设备导入；这不等同于自动私有跨设备同步。JSON 不应包含会话凭据、cookie 或临时音频 URL。
 
-## ✨ 特性
+音源可能返回完整可播、试听或不可用。播放器会明确显示限制、错误和浏览器自动播放拒绝；失效时只对同一首歌进行有限重新解析，不自动改换曲目或绕过权限。H5 锁屏和后台持续播放取决于浏览器与宿主环境，不能保证。
 
-- ✅ 使用 Vue.js 全家桶开发
-- 🔴 网易云账号登录（扫码/手机/邮箱登录）
-- 📺 支持 MV 播放
-- 📃 支持歌词显示
-- 📻 支持私人 FM / 每日推荐歌曲
-- 🚫🤝 无任何社交功能
-- 🌎️ 海外用户可直接播放（需要登录网易云账号）
-- 🔐 支持 [UnblockNeteaseMusic](https://github.com/UnblockNeteaseMusic/server#音源清单)，自动使用[各类音源](https://github.com/UnblockNeteaseMusic/server#音源清单)替换变灰歌曲链接 （网页版不支持）
-  - 「各类音源」指默认启用的音源。
-  - YouTube 音源需自行安装 `yt-dlp`。
-- ✔️ 每日自动签到（手机端和电脑端同时签到）
-- 🌚 Light/Dark Mode 自动切换
-- 👆 支持 Touch Bar
-- 🖥️ 支持 PWA，可在 Chrome/Edge 里点击地址栏右边的 ➕ 安装到电脑
-- 🟥 支持 Last.fm Scrobble
-- ☁️ 支持音乐云盘
-- ⌨️ 自定义快捷键和全局快捷键
-- 🎧 支持 Mpris
-- 🛠 更多特性开发中
+## 开发与验证
 
-## 📦️ 安装
-
-Electron 版本由 [@hawtim](https://github.com/hawtim) 和 [@qier222](https://github.com/qier222) 适配并维护，支持 macOS、Windows、Linux。
-
-访问本项目的 [Releases](https://github.com/qier222/YesPlayMusic/releases)
-页面下载安装包。
-
-- macOS 用户可以通过 Homebrew 来安装：`brew install --cask yesplaymusic`
-
-- Windows 用户可以通过 Scoop 来安装：`scoop install extras/yesplaymusic`
-
-## ⚙️ 部署至 Vercel
-
-除了下载安装包使用，你还可以将本项目部署到 Vercel 或你的服务器上。下面是部署到 Vercel 的方法。
-
-本项目的 Demo (https://music.qier222.com) 就是部署在 Vercel 上的网站。
-
-[![Powered by Vercel](https://www.datocms-assets.com/31049/1618983297-powered-by-vercel.svg)](https://vercel.com/?utm_source=ohmusic&utm_campaign=oss)
-
-1. 部署网易云 API，详情参见 [Binaryify/NeteaseCloudMusicApi](https://neteasecloudmusicapi.vercel.app/#/?id=%e5%ae%89%e8%a3%85)
-   。你也可以将 API 部署到 Vercel。
-
-2. 点击本仓库右上角的 Fork，复制本仓库到你的 GitHub 账号。
-
-3. 点击仓库的 Add File，选择 Create new file，输入 `vercel.json`，将下面的内容复制粘贴到文件中，并将 `https://your-netease-api.example.com` 替换为你刚刚部署的网易云 API 地址：
-
-```json
-{
-  "rewrites": [
-    {
-      "source": "/api/:match*",
-      "destination": "https://your-netease-api.example.com/:match*"
-    }
-  ]
-}
-```
-
-4. 打开 [Vercel.com](https://vercel.com)，使用 GitHub 登录。
-
-5. 点击 Import Git Repository 并选择你刚刚复制的仓库并点击 Import。
-
-6. 点击 PERSONAL ACCOUNT 旁边的 Select。
-
-7. 点击 Environment Variables，填写 Name 为 `VUE_APP_NETEASE_API_URL`，Value 为 `/api`，点击 Add。最后点击底部的 Deploy 就可以部署到
-   Vercel 了。
-
-## ⚙️ 部署到自己的服务器
-
-除了部署到 Vercel，你还可以部署到自己的服务器上
-
-1. 部署网易云 API，详情参见 [Binaryify/NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi)
-2. 克隆本仓库
+需要 Node.js **24.11 或更新的 24.x** 与 npm，版本入口是 `.nvmrc`，依赖锁定在 `package-lock.json`。
 
 ```sh
-git clone --recursive https://github.com/qier222/YesPlayMusic.git
+nvm use
+npm ci
+npm test
+npm run build
 ```
 
-3. 安装依赖
+本地开发默认监听 `37835`，将 `/music-api` 代理到 `http://127.0.0.1:37831`。使用其他独立后端时：
 
 ```sh
-yarn install
-
+MUSIC_DEV_API=http://127.0.0.1:37834 npm run dev
 ```
 
-4. （可选）使用 Nginx 反向代理 API，将 API 路径映射为 `/api`，如果 API 和网页不在同一个域名下的话（跨域），会有一些 bug。
+后端 `MUSIC_ORIGIN` 必须与浏览器访问的精确 origin 一致。本机 HTTP 调试需要明确设置 `MUSIC_COOKIE_SECURE=false`；HTTPS 部署保持 `true`。不要将应用密钥、数据库 DSN 或会话值写入前端环境变量。
 
-5. 复制 `/.env.example` 文件为 `/.env`，修改里面 `VUE_APP_NETEASE_API_URL` 的值为网易云 API 地址。本地开发的话可以填写 API 地址为 `http://localhost:3000`，YesPlayMusic 地址为 `http://localhost:8080`。如果你使用了反向代理 API，可以填写 API 地址为 `/api`。
+`npm run build` 先执行 TypeScript 检查，再输出 `dist/`。`npm run preview` 只预览静态构建，不会自动启动音乐 API；完整路径需要同源 API 或反向代理。CI 使用同一套 Node 24、`npm ci`、单元测试和生产构建。
 
+自动化单元测试覆盖播放器竞态、歌词切换、队列并发及有限音源重试，但它们不代表真实曲库、实体手机或飞书权限验收。对应运行记录与截图应在交付工作区单独提供。
+
+飞书身份发现、临时码交换与失败回退已有接口和客户端路径；当前尚无真实飞书 H5 临时码交换的验收证据，仍需应用权限、域名白名单与飞书内实际运行验证。普通浏览器的游客路径不依赖此验证。
+
+## 本地独立部署
+
+配套仓库布局：
+
+```text
+betago-music-web/
+  frontend/   # 当前仓库
+  backend/    # BetaGo-Redefine，含 cmd/music-server
 ```
-VUE_APP_NETEASE_API_URL=http://localhost:3000
-```
 
-6. 编译打包
+后端迁移与配置参见同级 `../backend/deploy/music.env.example`、`../backend/docs/operations/music.md`；完整接口契约在集成工作区的 `music-api-contract.md`。配置使用专属数据库/角色与应用边界，音乐服务单独监听，不能复用共享管理员 Bearer。
+
+可选择让独立 `music-server` 直接提供 `dist/`，设置 `MUSIC_STATIC_DIR` 为该目录的绝对路径；也可使用本目录的 Docker Compose，由 Nginx 同源转发 `/music-api/v1/` 到独立音乐 API。两者不需要重启共享 Bot。
+
+以下命令是运维操作示例，不表示已经上线。先将 `../backend/deploy/music.env.example` 复制为私有的 `music.local.env` 并填写配置。`MUSIC_DATABASE_URL` 指向可达的专用 PostgreSQL；`MUSIC_NETEASE_URL` 指向已验证的曲库适配器；可选服务端音源凭据只在后端私有环境文件中配置，不能放入网页构建。外部 HTTPS 反向代理需将选定域名转发到 `127.0.0.1:37830`，并将 `MUSIC_ORIGIN` 设置为该访问地址。保持环境文件在版本控制之外。
 
 ```sh
-yarn run build
+docker compose --project-name betago-music --env-file music.local.env config --quiet
+docker compose --project-name betago-music --env-file music.local.env build
+docker compose --project-name betago-music --env-file music.local.env up -d
 ```
 
-7. 将 `/dist` 目录下的文件上传到你的 Web 服务器
+Compose 只公开环回地址 `127.0.0.1:37830`，API 只在其独立网络内监听 `37831`；数据库由部署方提供。Nginx 不记录分享 token 等请求 URL，个人 API 禁止缓存。首次迁移前备份数据库；可由独立迁移角色预先执行 SQL，再设置 `MUSIC_MIGRATE=false`。
 
-## ⚙️ Docker 部署
-
-1. 构建 Docker Image
+仅构建网页镜像：
 
 ```sh
-docker build -t yesplaymusic .
+docker build -t betago-music-web:local .
 ```
 
-2. 启动 Docker Container
+镜像使用 Node 24 构建和 Nginx 提供静态文件，不包含网易云登录服务、个人 cookie 或桌面客户端。使用独立构建标签保留上一个镜像，避免覆盖唯一可回退版本。
 
-```sh
-docker run -d --name YesPlayMusic -p 80:80 yesplaymusic
-```
+## 运行核验与回退
 
-3. Docker Compose 启动
+每次交付应分别记录网页构建版本、后端版本、健康接口、真实匿名音源状态与浏览器播放读数。桌面浏览器截图、移动视口截图、实体手机验证和飞书内实际授权是不同证据；没有实测的项目应明确标注。
 
-```sh
-docker-compose up -d
-```
+回退时只恢复独立音乐服务的上一版镜像/二进制与静态资源，并核验健康、会话、歌单及队列。保留数据库及恢复资料，不删除表、tombstone 或 revision；若数据库结构必须回退，应先验证备份和兼容性，不能直接清空库。共享 Bot、旧播放器入口及其他服务的生命周期不属于此 Compose。
 
-YesPlayMusic 地址为 `http://localhost`
+旧卡片的 `?target=<descriptor URL>` 继续作为兼容入口。新链接优先使用稳定的 `source:externalID`；无法确认来源的旧描述符仅在当前播放器内使用，不能伪装成已持久化曲目。卡片字段和线上 Bot 的更新需单独验证，不能以网页代码或构建成功代替生产接入证据。
 
-## ⚙️ 部署至 Replit
+## 许可证
 
-1. 新建 Repl，选择 Bash 模板
-
-2. 在 Replit shell 中运行以下命令
-
-```sh
-bash <(curl -s -L https://raw.githubusercontent.com/qier222/YesPlayMusic/main/install-replit.sh)
-```
-
-3. 首次运行成功后，只需点击绿色按钮 `Run` 即可再次运行
-
-4. 由于 replit 个人版限制内存为 1G（教育版为 3G），构建过程中可能会失败，请再次运行上述命令或运行以下命令：
-
-```sh
-cd /home/runner/${REPL_SLUG}/music && yarn install && yarn run build
-```
-
-## 👷‍♂️ 打包客户端
-
-如果在 Release 页面没有找到适合你的设备的安装包的话，你可以根据下面的步骤来打包自己的客户端。
-
-1. 打包 Electron 需要用到 Node.js 和 Yarn。可前往 [Node.js 官网](https://nodejs.org/zh-cn/) 下载安装包。安装 Node.js
-   后可在终端里执行 `npm install -g yarn` 来安装 Yarn。
-
-2. 使用 `git clone --recursive https://github.com/qier222/YesPlayMusic.git` 克隆本仓库到本地。
-
-3. 使用 `yarn install` 安装项目依赖。
-
-4. 复制 `/.env.example` 文件为 `/.env` 。
-
-5. 选择下列表格的命令来打包适合的你的安装包，打包出来的文件在 `/dist_electron` 目录下。了解更多信息可访问 [electron-builder 文档](https://www.electron.build/cli)
-
-| 命令                                       | 说明                      |
-| ------------------------------------------ | ------------------------- |
-| `yarn electron:build --windows nsis:ia32`  | Windows 32 位             |
-| `yarn electron:build --windows nsis:arm64` | Windows ARM               |
-| `yarn electron:build --linux deb:armv7l`   | Debian armv7l（树莓派等） |
-| `yarn electron:build --macos dir:arm64`    | macOS ARM                 |
-
-## :computer: 配置开发环境
-
-本项目由 [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi) 提供 API。
-
-运行本项目
-
-```shell
-# 安装依赖
-yarn install
-
-# 创建本地环境变量
-cp .env.example .env
-
-# 运行（网页端）
-yarn serve
-
-# 运行（electron）
-yarn electron:serve
-```
-
-本地运行 NeteaseCloudMusicApi，或者将 API [部署至 Vercel](#%EF%B8%8F-部署至-vercel)
-
-```shell
-# 运行 API （默认 3000 端口）
-yarn netease_api:run
-```
-
-## ☑️ Todo
-
-查看 Todo 请访问本项目的 [Projects](https://github.com/qier222/YesPlayMusic/projects/1)
-
-欢迎提 Issue 和 Pull request。
-
-## 📜 开源许可
-
-本项目仅供个人学习研究使用，禁止用于商业及非法用途。
-
-基于 [MIT license](https://opensource.org/licenses/MIT) 许可进行开源。
-
-## 灵感来源
-
-API 源代码来自 [Binaryify/NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi)
-
-- [Apple Music](https://music.apple.com)
-- [YouTube Music](https://music.youtube.com)
-- [Spotify](https://www.spotify.com)
-- [网易云音乐](https://music.163.com)
-
-## 🖼️ 截图
-
-![lyrics][lyrics-screenshot]
-![library-dark][library-dark-screenshot]
-![album][album-screenshot]
-![home-2][home-2-screenshot]
-![artist][artist-screenshot]
-![search][search-screenshot]
-![home][home-screenshot]
-![explore][explore-screenshot]
-
-<!-- MARKDOWN LINKS & IMAGES -->
-<!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-
-[album-screenshot]: images/album.png
-[artist-screenshot]: images/artist.png
-[explore-screenshot]: images/explore.png
-[home-screenshot]: images/home.png
-[home-2-screenshot]: images/home-2.png
-[lyrics-screenshot]: images/lyrics.png
-[library-screenshot]: images/library.png
-[library-dark-screenshot]: images/library-dark.png
-[search-screenshot]: images/search.png
-
-## BetaGo Music MVP
-
-The `codex/music-library-mvp` branch uses the existing Vue2 Player/Howler, lyrics and TrackList components with an independent BetaGo music API. Open `/library`; guests are created automatically. Personal playlists, likes, history, device queues, recovery and revocable read-only sharing use same-origin `/music-api/v1`, backed by PostgreSQL in BetaGo-Redefine. No NetEase account, QR login, personal cookie, unlock service or alternative-source matching is used by this flow.
-
-Build with Node 16: `yarn install --frozen-lockfile --ignore-scripts && yarn build`. Nginx proxies only the music API to the separate `music` service; the associated BetaGo checkout must be available at `../backend` when using the example Compose layout. Set `MUSIC_ORIGIN` and a private `MUSIC_DATABASE_URL` through a private environment manager. This Compose file does not deploy or restart the shared Bot. Alternatively, `cmd/music-server` can serve this dist directory directly.
-
-Guest sessions are browser-specific. Save a recovery code privately to reopen the same guest space on another device, or use versioned JSON to copy playlists/likes. A read-only share link cannot recover an account. Optional Feishu code exchange requires configured app permissions/domain and a host-provided `tt.requestAccess` JSSDK; guest browsing works without it. Guest and verified Feishu spaces remain separate; export/import when deliberately copying data.
-
-Legacy full `?target=<descriptor URL>` links are read asynchronously with stable track identity. The target is consumed after opening so refreshing later does not reset an edited queue. Queue restore is paused and resolves a fresh source; source errors allow one recovery, then stop visibly. Preview/restriction and autoplay errors are explicit. H5 lock-screen/background playback is subject to the host and operating system.
-
-The API contract and database/config/deployment/rollback guide are delivered with the BetaGo-Redefine music branch under `docs/operations/music-api-contract.md` and `docs/operations/music.md`. The production code has no synthetic catalogue; test tones are supplied only by the isolated QA helper in the integration workspace.
+保留 MIT 许可证及原有 YesPlayMusic 版权声明，见 [LICENSE](LICENSE)。历史素材与署名应按其许可证继续保留。

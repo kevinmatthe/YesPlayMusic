@@ -1,9 +1,9 @@
-FROM node:16.20.2-alpine AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --ignore-scripts
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY . .
-RUN yarn build
+RUN npm run build
 
 FROM nginx:stable-alpine
 COPY docker/nginx.conf.example /etc/nginx/conf.d/default.conf

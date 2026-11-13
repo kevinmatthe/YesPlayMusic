@@ -2,7 +2,7 @@
 services:
   web:
     build: .
-    image: kevinmatt/myplayer:music-mvp
+    image: betago-music-web:local
     ports:
       - "127.0.0.1:37830:80"
     depends_on:
@@ -12,17 +12,16 @@ services:
     build:
       context: ../backend
       dockerfile: deploy/music.Dockerfile
-    image: betago-music-api:music-mvp
+    image: betago-music-api:local
     environment:
       MUSIC_MIGRATE: "${MUSIC_MIGRATE:-true}"
       MUSIC_ADDR: "0.0.0.0:37831"
-      MUSIC_ORIGIN: "${MUSIC_ORIGIN:?set exact HTTPS public origin}"
+      MUSIC_ORIGIN: "${MUSIC_ORIGIN:?set exact public origin}"
       MUSIC_APP_ID: "${MUSIC_APP_ID:-betago-music}"
-      MUSIC_COOKIE_SECURE: "true"
+      MUSIC_COOKIE_SECURE: "${MUSIC_COOKIE_SECURE:-true}"
       MUSIC_DATABASE_URL: "${MUSIC_DATABASE_URL:?set private Postgres DSN}"
       MUSIC_OWNED_MEDIA_HOST: "${MUSIC_OWNED_MEDIA_HOST:-}"
-      MUSIC_NETEASE_URL: "${MUSIC_OWNED_MEDIA_HOST: "${MUSIC_OWNED_MEDIA_HOST:-}"
-      MUSIC_NETEASE_URL:-}"
+      MUSIC_NETEASE_URL: "${MUSIC_NETEASE_URL:-}"
       MUSIC_FEISHU_APP_SECRET: "${MUSIC_FEISHU_APP_SECRET:-}"
       MUSIC_FEISHU_REDIRECT_URI: "${MUSIC_FEISHU_REDIRECT_URI:-}"
     restart: unless-stopped
