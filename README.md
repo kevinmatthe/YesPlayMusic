@@ -1,6 +1,6 @@
 # BetaGo Music Web
 
-独立音乐库与网页播放器，按本次已授权的现代前端重写，使用 Vue 3、TypeScript、Vite、Pinia 和原生 HTML Audio。YesPlayMusic 作为功能和交互参考；当前构建目标是网页，不再打包 Electron。部署目标是自有服务器上的独立服务，不以 Vercel 作为交付目标。
+独立音乐库与网页播放器，按本次已授权的现代前端重写，使用 Vue 3、TypeScript、Vite、Pinia 和原生 HTML Audio。YesPlayMusic 作为功能和交互参考；当前构建目标是网页，不再打包 Electron。部署目标是自有服务器上的独立服务。`vercel.json` 仅按[官方 Git 配置](https://vercel.com/docs/project-configuration/git-configuration)禁止本任务分支自动部署，避免旧 Git 集成再次触发；它不是本地部署的依赖。
 
 网页通过同源 `/music-api/v1` 调用 BetaGo 的独立 Go 音乐模块，个人数据写入自己的 PostgreSQL 数据库。曲库和音源是可替换的适配器：默认匿名，也可显式配置运营者已有的网易云服务端登录态或自有 MinIO 歌曲缓存。网页用户不需要网易云登录、二维码或个人 cookie；服务端音源授权与个人音乐空间的身份完全分开。
 

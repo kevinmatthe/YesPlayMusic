@@ -2,6 +2,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import type {
   AuthOptions,
+  CatalogueOptions,
   ExportData,
   HistoryItem,
   Lyrics,
@@ -103,6 +104,7 @@ export function createMusicApi(
   }
   const api: MusicApi = {
     authOptions: () => request<AuthOptions>('/auth/options'),
+    catalogOptions: () => request<CatalogueOptions>('/catalog/options'),
     ensureGuest() {
       return (guest ??= request<Session>('/auth/guest', 'POST', {}).catch(e => {
         guest = undefined;
@@ -110,9 +112,9 @@ export function createMusicApi(
       }));
     },
     me: () => request<Session>('/me'),
-    async search(q) {
+    async search(q, source) {
       return remember(
-        (await request<{ tracks: Track[] }>('/search?q=' + E(q))).tracks
+        (await request<{ tracks: Track[] }>('/search?q=' + E(q) + (source ? '&source=' + E(source) : ''))).tracks
       );
     },
     async details(ids) {

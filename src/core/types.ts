@@ -63,11 +63,20 @@ export interface Session {
   user: { id: string; kind: 'guest' | 'feishu' };
   expiresAt: string;
 }
+export interface CatalogueSource {
+  id: string;
+  name: string;
+}
+export interface CatalogueOptions {
+  defaultSource: string;
+  sources: CatalogueSource[];
+}
 export interface MusicApi {
+  catalogOptions(): Promise<CatalogueOptions>;
   authOptions(): Promise<AuthOptions>;
   ensureGuest(): Promise<Session>;
   me(): Promise<Session>;
-  search(q: string): Promise<Track[]>;
+  search(q: string, source?: string): Promise<Track[]>;
   details(ids: string[]): Promise<Track[]>;
   resolve(id: string): Promise<Resolution>;
   lyrics(id: string): Promise<Lyrics>;
