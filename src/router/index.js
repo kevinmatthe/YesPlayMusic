@@ -1,52 +1,16 @@
 import Vue from 'vue';
 import VueRouter from 'vue-router';
-import { isLooseLoggedIn, isAccountLoggedIn } from '@/utils/auth';
-
+import MusicLibrary from '@/views/MusicLibrary.vue';
 Vue.use(VueRouter);
-const routes = [
-  {
-    path: '/play',
-    name: '/',
-    component: () => import('@/views/home.vue'),
-    meta: {
-      keepAlive: true,
-      savePosition: true,
-    },
-  },
-];
-
-const router = new VueRouter({
-  mode: process.env.IS_ELECTRON ? 'hash' : 'history',
-  routes,
+export default new VueRouter({
+  mode: 'history',
+  routes: [
+    { path: '/', redirect: '/library' },
+    { path: '/library', component: MusicLibrary },
+    { path: '/search', component: MusicLibrary },
+    { path: '/queue', component: MusicLibrary },
+    { path: '/play', component: MusicLibrary },
+    { path: '/share/:token', component: MusicLibrary },
+    { path: '*', redirect: '/library' },
+  ],
 });
-
-const originalPush = VueRouter.prototype.push;
-VueRouter.prototype.push = function push(location) {
-  return originalPush.call(this, location).catch(err => err);
-};
-
-router.beforeEach((to, from, next) => {
-  // 需要登录的逻辑
-  if (to.meta.requireAccountLogin) {
-    if (isAccountLoggedIn()) {
-      next();
-    } else {
-      next({ path: '/login/account' });
-    }
-  }
-  if (to.meta.requireLogin) {
-    if (isLooseLoggedIn()) {
-      next();
-    } else {
-      if (process.env.IS_ELECTRON === true) {
-        next({ path: '/login/account' });
-      } else {
-        next({ path: '/login' });
-      }
-    }
-  } else {
-    next();
-  }
-});
-
-export default router;

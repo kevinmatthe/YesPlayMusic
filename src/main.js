@@ -1,13 +1,12 @@
 import Vue from 'vue';
-import VueGtag from 'vue-gtag';
+
 import App from './App.vue';
 import router from './router';
 import store from './store';
 import i18n from '@/locale';
 import '@/assets/icons';
 import '@/utils/filters';
-import './registerServiceWorker';
-import { dailyTask } from '@/utils/common';
+
 import '@/assets/css/global.scss';
 import NProgress from 'nprogress';
 import '@/assets/css/nprogress.css';
@@ -28,17 +27,9 @@ console.log(
   'background:unset;color:unset;'
 );
 
-Vue.use(
-  VueGtag,
-  {
-    config: { id: 'G-KMJJCFZDKF' },
-  },
-  router
-);
 Vue.config.productionTip = false;
 
 NProgress.configure({ showSpinner: false, trickleSpeed: 100 });
-dailyTask();
 
 new Vue({
   i18n,

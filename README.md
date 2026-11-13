@@ -258,3 +258,15 @@ API 源代码来自 [Binaryify/NeteaseCloudMusicApi](https://github.com/Binaryif
 [library-screenshot]: images/library.png
 [library-dark-screenshot]: images/library-dark.png
 [search-screenshot]: images/search.png
+
+## BetaGo Music MVP
+
+The `codex/music-library-mvp` branch uses the existing Vue2 Player/Howler, lyrics and TrackList components with an independent BetaGo music API. Open `/library`; guests are created automatically. Personal playlists, likes, history, device queues, recovery and revocable read-only sharing use same-origin `/music-api/v1`, backed by PostgreSQL in BetaGo-Redefine. No NetEase account, QR login, personal cookie, unlock service or alternative-source matching is used by this flow.
+
+Build with Node 16: `yarn install --frozen-lockfile --ignore-scripts && yarn build`. Nginx proxies only the music API to the separate `music` service; the associated BetaGo checkout must be available at `../backend` when using the example Compose layout. Set `MUSIC_ORIGIN` and a private `MUSIC_DATABASE_URL` through a private environment manager. This Compose file does not deploy or restart the shared Bot. Alternatively, `cmd/music-server` can serve this dist directory directly.
+
+Guest sessions are browser-specific. Save a recovery code privately to reopen the same guest space on another device, or use versioned JSON to copy playlists/likes. A read-only share link cannot recover an account. Optional Feishu code exchange requires configured app permissions/domain and a host-provided `tt.requestAccess` JSSDK; guest browsing works without it. Guest and verified Feishu spaces remain separate; export/import when deliberately copying data.
+
+Legacy full `?target=<descriptor URL>` links are read asynchronously with stable track identity. The target is consumed after opening so refreshing later does not reset an edited queue. Queue restore is paused and resolves a fresh source; source errors allow one recovery, then stop visibly. Preview/restriction and autoplay errors are explicit. H5 lock-screen/background playback is subject to the host and operating system.
+
+The API contract and database/config/deployment/rollback guide are delivered with the BetaGo-Redefine music branch under `docs/operations/music-api-contract.md` and `docs/operations/music.md`. The production code has no synthetic catalogue; test tones are supplied only by the isolated QA helper in the integration workspace.

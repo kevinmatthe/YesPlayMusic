@@ -1,3 +1,4 @@
+import { api, toPlayer } from './music';
 import request from '@/utils/request';
 import { mapTrackPlayableStatus } from '@/utils/common';
 
@@ -42,34 +43,17 @@ export function dailyRecommendPlaylist(params) {
  * @param {number} id
  * @param {boolean=} noCache
  */
-export function getPlaylistDetail(id, noCache = false) {
-  let params = { id };
-  if (noCache) params.timestamp = new Date().getTime();
-  return request({
-    url: '/playlist/detail',
-    method: 'get',
-    params,
-  }).then(data => {
-    if (data.playlist) {
-      data.playlist.tracks = mapTrackPlayableStatus(
-        data.playlist.tracks,
-        data.privileges || []
-      );
-    }
-    return data;
-  });
+export async function getPlaylistDetail(id) {
+  const p = await api('/playlists/' + encodeURIComponent(id));
+  return {
+    playlist: {
+      ...p,
+      tracks: p.tracks.map(toPlayer),
+      trackIds: p.tracks.map(t => ({ id: t.id })),
+    },
+  };
 }
-/**
- * 获取精品歌单
- * 说明 : 调用此接口 , 可获取精品歌单
- * - cat: tag, 比如 " 华语 "、" 古风 " 、" 欧美 "、" 流行 ", 默认为 "全部", 可从精品歌单标签列表接口获取(/playlist/highquality/tags)
- * - limit: 取出歌单数量 , 默认为 20
- * - before: 分页参数,取上一页最后一个歌单的 updateTime 获取下一页数据
- * @param {Object} params
- * @param {string} params.cat
- * @param {number=} params.limit
- * @param {number} params.before
- */
+
 export function highQualityPlaylist(params) {
   return request({
     url: '/top/playlist/highquality',
@@ -128,74 +112,42 @@ export function toplists() {
  * @param {number} params.t
  * @param {number} params.id
  */
-export function subscribePlaylist(params) {
-  params.timestamp = new Date().getTime();
-  return request({
-    url: '/playlist/subscribe',
-    method: 'post',
-    params,
-  });
+export function subscribePlaylist() {
+  return Promise.reject(new Error('请通过自有只读分享链接复制歌单'));
 }
 
-/**
- * 删除歌单
- * 说明 : 调用此接口 , 传入歌单id可删除歌单
- * - id : 歌单id,可多个,用逗号隔开
- *  * @param {number} id
- */
-export function deletePlaylist(id) {
-  return request({
-    url: '/playlist/delete',
-    method: 'post',
-    params: { id },
-  });
+export async function deletePlaylist(id, revision) {
+  if (revision === undefined)
+    throw new Error('删除需要歌单 revision，请重新载入后操作');
+  return api('/playlists/' + encodeURIComponent(id), 'DELETE', { revision });
 }
 
-/**
- * 新建歌单
- * 说明 : 调用此接口 , 传入歌单名字可新建歌单
- * - name : 歌单名
- * - privacy : 是否设置为隐私歌单，默认否，传'10'则设置成隐私歌单
- * - type : 歌单类型,默认'NORMAL',传 'VIDEO'则为视频歌单
- * @param {Object} params
- * @param {string} params.name
- * @param {number} params.privacy
- * @param {string} params.type
- */
-export function createPlaylist(params) {
-  params.timestamp = new Date().getTime();
-  return request({
-    url: '/playlist/create',
-    method: 'post',
-    params,
+export async function createPlaylist(params) {
+  const playlist = await api('/playlists', 'POST', {
+    name: params.name,
+    trackIDs: [],
   });
+  return { code: 200, playlist };
 }
 
-/**
- * 对歌单添加或删除歌曲
- * 说明 : 调用此接口 , 可以添加歌曲到歌单或者从歌单删除某首歌曲 ( 需要登录 )
- * - op: 从歌单增加单曲为 add, 删除为 del
- * - pid: 歌单 id tracks: 歌曲 id,可多个,用逗号隔开
- * @param {Object} params
- * @param {string} params.op
- * @param {string} params.pid
- */
-export function addOrRemoveTrackFromPlaylist(params) {
-  params.timestamp = new Date().getTime();
-  return request({
-    url: '/playlist/tracks',
-    method: 'post',
-    params,
+export async function addOrRemoveTrackFromPlaylist(params) {
+  const p = await api('/playlists/' + encodeURIComponent(params.pid));
+  const changed = Array.isArray(params.tracks)
+    ? params.tracks
+    : String(params.tracks).split(',');
+  const ids = p.tracks.map(t => t.id);
+  const trackIDs =
+    params.op === 'del'
+      ? ids.filter(id => !changed.includes(id))
+      : Array.from(new Set([...ids, ...changed]));
+  await api('/playlists/' + encodeURIComponent(params.pid), 'PUT', {
+    name: p.name,
+    trackIDs,
+    revision: params.revision ?? p.revision,
   });
+  return { body: { code: 200 } };
 }
 
-/**
- * 每日推荐歌曲
- * 说明 : 调用此接口 , 可获得每日推荐歌曲 ( 需要登录 )
- * @param {Object} params
- * @param {string} params.op
- * @param {string} params.pid
- */
 export function dailyRecommendTracks() {
   return request({
     url: '/recommend/songs',

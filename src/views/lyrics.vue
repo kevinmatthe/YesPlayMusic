@@ -77,7 +77,6 @@
                   <button-icon
                     :title="$t('player.like')"
                     @click.native="likeATrack(player.currentTrack.id)"
-                    hidden
                   >
                     <svg-icon
                       :icon-class="
@@ -88,7 +87,6 @@
                   <button-icon
                     :title="$t('contextMenu.addToPlaylist')"
                     @click.native="addToPlaylist"
-                    hidden
                   >
                     <svg-icon icon-class="plus" />
                   </button-icon>
@@ -131,7 +129,6 @@
                 <svg-icon
                   v-show="player.repeatMode !== 'one'"
                   icon-class="repeat"
-                  hidden
                 />
                 <svg-icon
                   v-show="player.repeatMode === 'one'"
@@ -143,7 +140,6 @@
                   v-show="!player.isPersonalFM"
                   :title="$t('player.previous')"
                   @click.native="playPrevTrack"
-                  hidden
                 >
                   <svg-icon icon-class="previous" />
                 </button-icon>
@@ -151,7 +147,6 @@
                   v-show="player.isPersonalFM"
                   title="不喜欢"
                   @click.native="moveToFMTrash"
-                  hidden
                 >
                   <svg-icon icon-class="thumbs-down" />
                 </button-icon>
@@ -165,7 +160,6 @@
                 <button-icon
                   :title="$t('player.next')"
                   @click.native="playNextTrack"
-                  hidden
                 >
                   <svg-icon icon-class="next" />
                 </button-icon>
@@ -175,7 +169,6 @@
                 :title="$t('player.shuffle')"
                 :class="{ active: player.shuffle }"
                 @click.native="switchShuffle"
-                hidden
               >
                 <svg-icon icon-class="shuffle" />
               </button-icon>
@@ -241,7 +234,7 @@
           </div>
         </transition>
       </div>
-      <div class="close-button" @click="toggleLyrics" hidden>
+      <div class="close-button" @click="toggleLyrics">
         <button>
           <svg-icon icon-class="arrow-down" />
         </button>
@@ -262,9 +255,7 @@ import { lyricParser } from '@/utils/lyrics';
 import ButtonIcon from '@/components/ButtonIcon.vue';
 import * as Vibrant from 'node-vibrant/dist/vibrant.worker.min.js';
 import Color from 'color';
-import { isAccountLoggedIn } from '@/utils/auth';
 import { hasListSource, getListSourcePath } from '@/utils/playList';
-import locale from '@/locale';
 
 export default {
   name: 'Lyrics',
@@ -448,21 +439,9 @@ export default {
       );
     },
     addToPlaylist() {
-      if (!isAccountLoggedIn()) {
-        this.showToast(locale.t('toast.needToLogin'));
-        return;
-      }
-      this.$store.dispatch('fetchLikedPlaylist');
-      this.updateModal({
-        modalName: 'addTrackToPlaylistModal',
-        key: 'show',
-        value: true,
-      });
-      this.updateModal({
-        modalName: 'addTrackToPlaylistModal',
-        key: 'selectedTrackID',
-        value: this.currentTrack?.id,
-      });
+      window.dispatchEvent(
+        new CustomEvent('music-add-track', { detail: this.currentTrack.id })
+      );
     },
     playPrevTrack() {
       this.player.playPrevTrack();
@@ -479,49 +458,59 @@ export default {
     },
     getLyric() {
       if (!this.currentTrack.id) return;
-      return getLyric(this.currentTrack.id).then(data => {
-        if (!data?.lrc?.lyric) {
-          this.lyric = [];
-          this.tlyric = [];
-          this.romalyric = [];
-          return false;
-        } else {
-          let { lyric, tlyric, romalyric } = lyricParser(data);
-          lyric = lyric.filter(
-            l => !/^作(词|曲)\s*(:|：)\s*无$/.exec(l.content)
-          );
-          let includeAM =
-            lyric.length <= 10 &&
-            lyric.map(l => l.content).includes('纯音乐，请欣赏');
-          if (includeAM) {
-            let reg = /^作(词|曲)\s*(:|：)\s*/;
-            let author = this.currentTrack?.ar[0]?.name;
-            lyric = lyric.filter(l => {
-              let regExpArr = l.content.match(reg);
-              return (
-                !regExpArr || l.content.replace(regExpArr[0], '') !== author
-              );
-            });
-          }
-          if (lyric.length === 1 && includeAM) {
+      const id = this.currentTrack.id;
+      this.lyric = [];
+      this.tlyric = [];
+      this.romalyric = [];
+      if (!id) return Promise.resolve();
+      return getLyric(id)
+        .then(data => {
+          if (id !== this.currentTrack.id) return false;
+          if (!data?.lrc?.lyric) {
             this.lyric = [];
             this.tlyric = [];
             this.romalyric = [];
             return false;
           } else {
-            this.lyric = lyric;
-            this.tlyric = tlyric;
-            this.romalyric = romalyric;
-            if (tlyric.length * romalyric.length > 0) {
-              this.lyricType = 'translation';
-            } else {
-              this.lyricType =
-                lyric.length > 0 ? 'translation' : 'romaPronunciation';
+            let { lyric, tlyric, romalyric } = lyricParser(data);
+            lyric = lyric.filter(
+              l => !/^作(词|曲)\s*(:|：)\s*无$/.exec(l.content)
+            );
+            let includeAM =
+              lyric.length <= 10 &&
+              lyric.map(l => l.content).includes('纯音乐，请欣赏');
+            if (includeAM) {
+              let reg = /^作(词|曲)\s*(:|：)\s*/;
+              let author = this.currentTrack?.ar[0]?.name;
+              lyric = lyric.filter(l => {
+                let regExpArr = l.content.match(reg);
+                return (
+                  !regExpArr || l.content.replace(regExpArr[0], '') !== author
+                );
+              });
             }
-            return true;
+            if (lyric.length === 1 && includeAM) {
+              this.lyric = [];
+              this.tlyric = [];
+              this.romalyric = [];
+              return false;
+            } else {
+              this.lyric = lyric;
+              this.tlyric = tlyric;
+              this.romalyric = romalyric;
+              if (tlyric.length * romalyric.length > 0) {
+                this.lyricType = 'translation';
+              } else {
+                this.lyricType =
+                  lyric.length > 0 ? 'translation' : 'romaPronunciation';
+              }
+              return true;
+            }
           }
-        }
-      });
+        })
+        .catch(() => {
+          if (id === this.currentTrack.id) this.lyric = [];
+        });
     },
     switchLyricType() {
       this.lyricType =

@@ -102,7 +102,7 @@ export default {
       default: 'tracklist',
     }, // tracklist | album | playlist | cloudDisk
     id: {
-      type: Number,
+      type: [Number, String],
       default: 0,
     },
     dbclickTrackFunc: {
@@ -197,6 +197,7 @@ export default {
       this.rightClickedTrackIndex = -1;
     },
     playThisList(trackID) {
+      if (this.dbclickTrackFunc === 'none') return;
       if (this.dbclickTrackFunc === 'default') {
         this.playThisListDefault(trackID);
       } else if (this.dbclickTrackFunc === 'none') {
@@ -236,20 +237,11 @@ export default {
       this.likeATrack(this.rightClickedTrack.id);
     },
     addTrackToPlaylist() {
-      if (!isAccountLoggedIn()) {
-        this.showToast(locale.t('toast.needToLogin'));
-        return;
-      }
-      this.updateModal({
-        modalName: 'addTrackToPlaylistModal',
-        key: 'show',
-        value: true,
-      });
-      this.updateModal({
-        modalName: 'addTrackToPlaylistModal',
-        key: 'selectedTrackID',
-        value: this.rightClickedTrack.id,
-      });
+      window.dispatchEvent(
+        new CustomEvent('music-add-track', {
+          detail: this.rightClickedTrack.id,
+        })
+      );
     },
     removeTrackFromPlaylist() {
       if (!isAccountLoggedIn()) {
@@ -273,15 +265,11 @@ export default {
       }
     },
     copyLink() {
-      this.$copyText(
-        `https://music.163.com/song?id=${this.rightClickedTrack.id}`
-      )
-        .then(() => {
-          this.showToast(locale.t('toast.copied'));
+      window.dispatchEvent(
+        new CustomEvent('music-share-track', {
+          detail: this.rightClickedTrack.id,
         })
-        .catch(err => {
-          this.showToast(`${locale.t('toast.copyFailed')}${err}`);
-        });
+      );
     },
     removeTrackFromQueue() {
       this.$store.state.player.removeTrackFromQueue(

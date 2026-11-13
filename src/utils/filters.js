@@ -62,11 +62,17 @@ Vue.filter('formatAlbumType', (type, album) => {
 
 Vue.filter('resizeImage', (imgUrl, size = 512) => {
   if (!imgUrl) return '';
-  let httpsImgUrl = imgUrl;
-  if (imgUrl.slice(0, 5) !== 'https') {
-    httpsImgUrl = 'https' + imgUrl.slice(4);
+  try {
+    const url = new URL(imgUrl, location.origin);
+    // Signed object URLs and local assets must keep their original path/query.
+    if (/(^|\.)(music\.126\.net|music\.163\.com)$/.test(url.hostname)) {
+      url.protocol = 'https:';
+      url.searchParams.set('param', `${size}y${size}`);
+    }
+    return url.href;
+  } catch (_) {
+    return imgUrl;
   }
-  return `${httpsImgUrl}?param=${size}y${size}`;
 });
 
 Vue.filter('formatPlayCount', count => {

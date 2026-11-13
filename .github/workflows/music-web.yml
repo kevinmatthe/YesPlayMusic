@@ -1,0 +1,21 @@
+name: Music Web
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+          cache: yarn
+      - run: yarn install --frozen-lockfile --ignore-scripts
+      - run: yarn build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: music-web-dist
+          path: dist

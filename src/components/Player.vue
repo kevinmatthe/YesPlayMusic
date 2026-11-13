@@ -227,9 +227,9 @@ export default {
     },
     goToNextTracksPage() {
       if (this.player.isPersonalFM) return;
-      this.$route.name === 'next'
+      this.$route.path === '/queue'
         ? this.$router.go(-1)
-        : this.$router.push({ name: 'next' });
+        : this.$router.push('/queue');
     },
     formatTrackTime(value) {
       return formatTrackTime(value);

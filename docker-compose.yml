@@ -1,39 +1,28 @@
+# Isolated music deployment. Does not attach to or restart Bot containers.
 services:
-  YesPlayMusic:
-    build:
-      context: .
-    image: yesplaymusic
-    container_name: YesPlayMusic
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
-      - ./docker/nginx.conf.example:/etc/nginx/conf.d/default.conf:ro
+  web:
+    build: .
+    image: kevinmatt/myplayer:music-mvp
     ports:
-      - 80:80
-    restart: always
+      - "127.0.0.1:37830:80"
     depends_on:
-      - UnblockNeteaseMusic
+      - music
+    restart: unless-stopped
+  music:
+    build:
+      context: ../backend
+      dockerfile: deploy/music.Dockerfile
+    image: betago-music-api:music-mvp
     environment:
-      - NODE_TLS_REJECT_UNAUTHORIZED=0
-    networks:
-      my_network:
-
-  UnblockNeteaseMusic:
-    image: pan93412/unblock-netease-music-enhanced
-    command: -o kugou kuwo migu bilibili pyncmd -p 80:443 -f 45.127.129.53 -e -
-    # environment:
-    #   JSON_LOG: true
-    #   LOG_LEVEL: debug
-    networks:
-      my_network:
-        aliases:
-          - music.163.com
-          - interface.music.163.com
-          - interface3.music.163.com
-          - interface.music.163.com.163jiasu.com
-          - interface3.music.163.com.163jiasu.com
-    restart: always
-
-networks:
-  my_network:
-    driver: bridge
+      MUSIC_MIGRATE: "${MUSIC_MIGRATE:-true}"
+      MUSIC_ADDR: "0.0.0.0:37831"
+      MUSIC_ORIGIN: "${MUSIC_ORIGIN:?set exact HTTPS public origin}"
+      MUSIC_APP_ID: "${MUSIC_APP_ID:-betago-music}"
+      MUSIC_COOKIE_SECURE: "true"
+      MUSIC_DATABASE_URL: "${MUSIC_DATABASE_URL:?set private Postgres DSN}"
+      MUSIC_OWNED_MEDIA_HOST: "${MUSIC_OWNED_MEDIA_HOST:-}"
+      MUSIC_NETEASE_URL: "${MUSIC_OWNED_MEDIA_HOST: "${MUSIC_OWNED_MEDIA_HOST:-}"
+      MUSIC_NETEASE_URL:-}"
+      MUSIC_FEISHU_APP_SECRET: "${MUSIC_FEISHU_APP_SECRET:-}"
+      MUSIC_FEISHU_REDIRECT_URI: "${MUSIC_FEISHU_REDIRECT_URI:-}"
+    restart: unless-stopped
