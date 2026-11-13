@@ -391,7 +391,15 @@ export class NativePlayer {
     this.state.loading = false;
     this.state.playing = false;
     this.state.resolutionStatus = 'unavailable';
-    this.state.status = reason;
+    const messages: Record<string, string> = {
+      provider_preview_requires_official_player: '这首歌需要在酷我官方播放器中试听或播放，当前网页无法提供音源。',
+      provider_access_denied: '当前来源不允许播放这首歌。',
+      anonymous_source_unavailable_or_restricted: '当前音源不可用或受限，请选择其他歌曲或来源。',
+      insecure_audio_https_unavailable: '音源暂时无法通过 HTTPS 安全读取，请稍后重试。',
+      source_not_supported: '暂不支持这个歌曲来源。',
+      source_not_configured: '这个音源尚未配置。',
+    };
+    this.state.status = messages[reason] || (reason.startsWith('source_mismatch:') ? '音源返回了其他来源的文件，已停止播放。' : reason);
     this.playIntent = false;
     this.resetAudio(false);
   }

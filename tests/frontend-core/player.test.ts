@@ -224,6 +224,15 @@ describe('native single player', () => {
     expect(player.state.status).toContain('permission_denied');
     expect(audio.src).toBe('');
   });
+  it('explains an unavailable official-player-only recording without requesting media or switching tracks', async () => {
+    const item={...A,id:'kuwo:5886682',source:'kuwo',externalID:'5886682'};
+    const {player,audio}=setup({resolve:vi.fn(async (id:string)=>({trackID:id,status:'unavailable' as const,reason:'provider_preview_requires_official_player'}))});
+    await player.initialize();
+    await player.playTracks([item,A]);
+    expect(player.currentTrack?.id).toBe(item.id);
+    expect(audio.src).toBe('');
+    expect(player.state.status).toContain('酷我官方播放器');
+  });
   it('shows autoplay rejection and remains available for an explicit user retry', async () => {
     const { player, audio } = setup();
     audio.play = vi
