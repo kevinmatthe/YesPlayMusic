@@ -124,6 +124,36 @@ const flush = async () => {
 };
 
 describe('native single player', () => {
+  it('does not let an unchanged retiring page advance the queue revision after the replacement page reads it', async () => {
+    const releaseKeepalive = deferred<void>();
+    let stored: Queue = { ...empty, trackIDs: [] };
+    const save = vi.fn<MusicApi['saveQueue']>().mockImplementation(async (_device, q, keepalive) => {
+      if (keepalive) await releaseKeepalive.promise;
+      if (q.revision !== stored.revision)
+        throw Object.assign(new Error('revision conflict'), { status: 409 });
+      stored = { ...q, trackIDs: q.trackIDs.slice(), revision: q.revision + 1 };
+      return stored;
+    });
+    const retiring = setup({ queue: vi.fn(async () => ({ ...stored })), saveQueue: save });
+    await retiring.player.initialize();
+    const replacement = createPlayer({ api: retiring.api, storage: retiring.storage, audioFactory: () => new FakeAudio() as unknown as HTMLAudioElement });
+    cleanups.push(() => replacement.dispose());
+
+    // A reload's old pagehide save may finish after the replacement GET.
+    const keepalive = retiring.player.saveQueue(true);
+    await replacement.initialize();
+    releaseKeepalive.resolve();
+    await keepalive;
+    await replacement.playTracks([A]);
+    await replacement.saveQueue();
+    const result = await replacement.enqueueMany([B, C]);
+
+    expect(result.accepted).toEqual([B, C]);
+    expect(result.failed).toEqual([]);
+    expect(replacement.state.queueConflict).toBe(false);
+    expect(stored.trackIDs).toEqual([A.id, B.id, C.id]);
+    expect(save.mock.calls.filter(call => call[2] === true)).toHaveLength(0);
+  });
   it('saves a batch in order, preserving duplicate queue entries and uninterrupted playback', async () => {
     const { player, audio, api } = setup();
     await player.initialize();

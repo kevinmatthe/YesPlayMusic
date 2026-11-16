@@ -706,6 +706,9 @@ export class NativePlayer {
       await this.saving;
       return;
     }
+    // In particular, pagehide must not advance a revision for an unchanged
+    // queue: the next page can already have read that revision during reload.
+    if (this.dirty <= this.saved) return;
     clearTimeout(this.timer);
     this.timer = undefined;
     if (this.state.tracks.some(track => track.source === 'legacy')) {
