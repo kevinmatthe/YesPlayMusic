@@ -1,0 +1,96 @@
+<script setup lang="ts">
+import { computed, nextTick, ref, watch } from 'vue'
+import type { Playlist, Track } from '../core'
+import { musicApi } from '../core'
+import { editPlaylistBatch, reconcileSelection } from '../playlist-batch'
+import { useMusic } from '../stores/music'
+import { useOverlay } from '../stores/overlay'
+import TrackRows from './TrackRows.vue'
+import Icon from './Icon.vue'
+
+const props=defineProps<{playlist:Playlist}>()
+const emit=defineEmits<{busy:[value:boolean];play:[tracks:Track[],index:number];move:[from:number,to:number];remove:[index:number]}>()
+const music=useMusic(),overlay=useOverlay(),selecting=ref(false),ids=ref<string[]>([]),filter=ref(''),busy=ref(false)
+const root=ref<HTMLElement>(),entry=ref<HTMLButtonElement>(),target=ref(''),adding=ref(false),notice=ref(''),problem=ref(false)
+const visible=computed(()=>{const q=filter.value.trim().toLocaleLowerCase();return q?props.playlist.tracks.filter(t=>`${t.title} ${t.artist} ${t.album}`.toLocaleLowerCase().includes(q)):props.playlist.tracks})
+const selected=computed(()=>visible.value.filter(t=>ids.value.includes(t.id)))
+const all=computed(()=>visible.value.length>0&&selected.value.length===visible.value.length)
+const others=computed(()=>music.playlists.filter(p=>p.id!==props.playlist.id))
+const scope=computed(()=>filter.value.trim()?`当前筛选结果（${visible.value.length} 首）`:`整个歌单（${props.playlist.tracks.length} 首）`)
+watch(busy,value=>emit('busy',value),{flush:'sync'})
+watch(filter,()=>{ids.value=[];notice.value='';adding.value=false})
+watch(()=>props.playlist.tracks.map(t=>t.id),()=>{ids.value=reconcileSelection(ids.value,visible.value)})
+watch(()=>props.playlist.id,()=>{ids.value=[];selecting.value=false;filter.value='';notice.value='';adding.value=false})
+function toggle(track:Track){if(busy.value)return;ids.value=ids.value.includes(track.id)?ids.value.filter(id=>id!==track.id):[...ids.value,track.id]}
+function toggleAll(){if(!busy.value)ids.value=all.value?[]:visible.value.map(t=>t.id)}
+async function start(){selecting.value=true;notice.value='';await nextTick();root.value?.querySelector<HTMLInputElement>('input[type=checkbox]')?.focus()}
+async function done(){if(busy.value)return;selecting.value=false;ids.value=[];adding.value=false;notice.value='';await nextTick();entry.value?.focus()}
+function keyboard(e:KeyboardEvent){
+ if(!selecting.value||busy.value)return
+ const el=e.target as HTMLElement
+ if(el.matches('input:not([type=checkbox]),textarea,select,[contenteditable=true]'))return
+ if(e.key==='Escape'){e.preventDefault();void done()}
+ if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'){e.preventDefault();ids.value=visible.value.map(t=>t.id)}
+}
+function report(text:string,failed:Track[]=[]){notice.value=text;problem.value=failed.length>0;ids.value=failed.map(t=>t.id)}
+async function mutate(action:'add'|'remove'){
+ if(busy.value||!selected.value.length)return
+ const tracks=selected.value.slice(),source=props.playlist,targetID=action==='remove'?source.id:target.value
+ if(!targetID)return
+ if(action==='remove'&&!confirm(`从「${source.name}」移除所选 ${tracks.length} 首歌曲？只影响这张歌单，喜欢、其他歌单与播放队列不变。`))return
+ busy.value=true;notice.value=''
+ try{
+  const result=await editPlaylistBatch(musicApi,targetID,tracks,action)
+  if(result.playlist){const i=music.playlists.findIndex(p=>p.id===targetID);if(i>=0)music.playlists[i]=result.playlist}
+  const verb=action==='add'?'加入':'移除',skipped=action==='add'?'已存在':'已不在歌单'
+  report(`${verb}成功 ${result.succeeded.length} 首，${skipped} ${result.skipped.length} 首，失败 ${result.failed.length} 首。${result.error||''}${result.failed.length?' 未成功的歌曲已保留选中，可重试。':''}`,result.failed)
+  if(!result.failed.length)adding.value=false
+ }catch(e){report(`成功 0 首，失败 ${tracks.length} 首。${e instanceof Error?e.message:'请稍后重试。'}`,tracks)}
+ finally{busy.value=false}
+}
+async function enqueue(){
+ if(busy.value||!selected.value.length)return
+ const tracks=selected.value.slice();busy.value=true;notice.value=''
+ try{const r=await music.player.enqueueMany(tracks);report(`已加入队列 ${r.accepted.length} 首，失败 ${r.failed.length} 首。${r.error||''}${r.failed.length?' 未入队的歌曲已保留选中，可重试。':''}`,r.failed)}
+ catch(e){report(`已入队 0 首，失败 ${tracks.length} 首。${e instanceof Error?e.message:'请稍后重试。'}`,tracks)}
+ finally{busy.value=false}
+}
+async function playSelected(){
+ if(busy.value||!selected.value.length)return
+ const tracks=selected.value.slice();busy.value=true;notice.value=''
+ try{await music.player.playTracks(tracks);notice.value=`播放队列已切换为所选 ${tracks.length} 首；音源可用性见播放器。`;problem.value=false}
+ finally{busy.value=false}
+}
+function play(index:number){emit('play',visible.value,index)}
+function actualIndex(index:number){return props.playlist.tracks.findIndex(t=>t.id===visible.value[index]?.id)}
+</script>
+
+<template>
+ <section ref="root" class="playlist-tracks" aria-label="歌单歌曲" @keydown="keyboard">
+  <div class="playlist-list-tools">
+   <label class="playlist-filter"><Icon name="search" :size="17"/><input v-model="filter" aria-label="筛选歌单歌曲" placeholder="筛选这张歌单" :disabled="busy"/></label>
+   <button v-if="!selecting" ref="entry" class="subtle" :disabled="!playlist.tracks.length||busy" @click="start">多选</button>
+   <button v-else class="subtle" :disabled="busy" @click="done">完成多选</button>
+  </div>
+  <Transition name="motion-toolbar"><div v-if="selecting" class="batch-panel batch-toolbar" :aria-busy="busy">
+   <div class="batch-summary"><label class="batch-all"><input type="checkbox" :checked="all" :indeterminate="ids.length>0&&!all" :disabled="!visible.length||busy" :aria-label="`全选${scope}`" @change="toggleAll"/><span>{{all?'取消全选':'全选'}}</span></label><strong role="status">已选 {{selected.length}} 首</strong></div>
+   <p class="batch-scope">全选范围：{{scope}}。{{filter.trim()?'更改筛选会清空选择。':'已完整加载，无分页。'}}<span class="batch-keyboard"> Tab / 空格勾选，Ctrl / ⌘ A 全选，Esc 退出。</span></p>
+   <div class="batch-actions">
+    <button class="primary" :disabled="!selected.length||busy" @click="playSelected"><Icon name="play" :size="16"/>播放所选</button>
+    <button class="subtle" :disabled="!selected.length||busy" @click="enqueue"><Icon name="queue" :size="16"/>加入播放队列</button>
+    <button class="subtle" :disabled="!selected.length||busy" :aria-expanded="adding" @click="adding=!adding"><Icon name="plus" :size="16"/>加入其他歌单</button>
+    <button class="subtle batch-remove" :disabled="!selected.length||busy" @click="mutate('remove')"><Icon name="trash" :size="16"/>从本歌单移除</button>
+   </div>
+   <form v-if="adding" class="batch-target" @submit.prevent="mutate('add')"><label for="batch-target">选择目标歌单</label><select id="batch-target" v-model="target" :disabled="busy" required><option value="" disabled>请选择其他歌单</option><option v-for="p in others" :key="p.id" :value="p.id">{{p.name}}（{{p.tracks.length}} 首）</option></select><button class="primary" :disabled="!target||busy">{{busy?'正在保存…':'确认加入'}}</button><p v-if="!others.length">还没有其他歌单，请先新建一张歌单。</p></form>
+   <p v-if="busy" role="status" class="batch-progress">正在处理，请稍候…</p>
+  </div></Transition>
+  <p v-if="notice" class="batch-result" :class="{'has-failures':problem}" role="status">{{notice}}</p>
+  <TrackRows :tracks="visible" :editable="!selecting&&!filter.trim()" :selecting="selecting" :selection="ids" :disabled="busy" @select="toggle" @play="play" @move="(from,to)=>emit('move',from,to)" @remove="emit('remove',actualIndex($event))" @add="overlay.add" @share="overlay.share('track',$event.id)"/>
+  <p v-if="filter.trim()&&!visible.length" class="muted">这张歌单没有匹配的歌曲。<button class="subtle" :disabled="busy" @click="filter=''">清空筛选</button></p>
+ </section>
+</template>
+
+<style scoped>
+.playlist-tracks{min-width:0}.playlist-list-tools{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin:1rem 0}.playlist-filter{display:flex;align-items:center;gap:.5rem;flex:1;min-width:0;border:1px solid #dce3cf;border-radius:.6rem;padding:0 .7rem;color:#758361}.playlist-filter input{width:100%;min-width:0;min-height:2.75rem;border:0;background:transparent;font:inherit;font-size:.8rem;color:#3b5234;outline-offset:3px}.playlist-list-tools>button{min-height:2.75rem}.batch-panel{padding:1rem;border:1px solid #dce4cd;border-radius:.75rem;background:#f0f4e9}.batch-summary{display:flex;align-items:center;flex-wrap:wrap;gap:1rem;font-size:.85rem}.batch-all{display:flex;align-items:center;gap:.5rem;min-height:2.75rem;cursor:pointer}.batch-all input{width:1.15rem;height:1.15rem;accent-color:#526f42}.batch-scope{color:#6c7d5d;font-size:.75rem;line-height:1.8;margin:.25rem 0 .9rem}.batch-keyboard{display:none}.batch-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}.batch-actions button{min-height:2.75rem;min-width:0;padding:.6rem .4rem;font-size:.72rem;justify-content:center;white-space:normal}.batch-actions .batch-remove{color:#93634d}.batch-target{display:grid;gap:.6rem;margin-top:1rem;padding-top:1rem;border-top:1px solid #dce4cd;min-width:0;font-size:.8rem}.batch-target select{width:100%;min-width:0;min-height:2.75rem;padding:.6rem;font:inherit;background:#fafbf5;border:1px solid #d2ddc3;border-radius:.5rem;color:#3b5234}.batch-target button{min-height:2.75rem;justify-content:center}.batch-result{padding:.8rem 1rem;font-size:.8rem;line-height:1.8;background:#e9f0df;color:#49633c;border-radius:.6rem;overflow-wrap:anywhere}.batch-result.has-failures{background:#f5eddf;color:#855e40}.batch-progress{font-size:.8rem;margin-bottom:0}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #6d864d;outline-offset:3px}
+@media(min-width:760px){.batch-actions{display:flex;flex-wrap:wrap}.batch-actions button{padding:.65rem 1rem;font-size:.8rem}.batch-keyboard{display:inline}.playlist-filter{max-width:24rem}.batch-target{grid-template-columns:minmax(0,1fr) auto}.batch-target label{grid-column:1/-1}.batch-target p{grid-column:1/-1}}
+</style>

@@ -1,8 +1,8 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/:match*",
-      "destination": "https://netease-cloud-music-6d0ddw9of-heyuhengmatt.vercel.app/:match*"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "codex/music-library-mvp": false
     }
-  ]
+  }
 }
