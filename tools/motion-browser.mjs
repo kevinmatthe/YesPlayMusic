@@ -28,10 +28,15 @@ function wav() {
   return bytes
 }
 const tone = wav()
+// Satisfy the public direct-URL contract without making a real CDN request.
+// This response is generated WAV for visual tests only.
+const demoAudioURL = 'https://m701.music.126.net/betago-motion-demo.wav'
+report.mockAudio = 'Designated HTTPS CDN-shaped URL intercepted in memory with generated WAV; no real audio/source acceptance'
 async function mock(context) {
   let likes = tracks.slice(0, 4), queue = { revision: 1, trackIDs: [], currentIndex: 0, positionMs: 0 }
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url())
+    if (url.href === demoAudioURL) return route.fulfill({ contentType: 'audio/wav', body: tone })
     if (url.origin !== new URL(base).origin) {
       report.requestsOutsidePreview.push(url.origin)
       return route.abort()
@@ -53,7 +58,7 @@ async function mock(context) {
     else if (path === '/search-history') body = { searches: [{ query: '清晨', source: 'netease', count: 1, lastSearchedAt: '2026-11-16T00:00:00Z' }] }
     else if (path === '/recommendations') body = { personalized: false, tracks: tracks.slice(0, 4).map(track => ({ track, reason: '本地动效演示', basis: 'discovery' })) }
     else if (path === '/tracks/details') body = { tracks: request.postDataJSON().ids.map(id => tracks.find(t => t.id === id)) }
-    else if (path.endsWith('/resolve')) body = { trackID: path.split('/')[2], status: 'available', url: base + '/motion-tone.wav', expiresAt: '2099-01-01T00:00:00Z' }
+    else if (path.endsWith('/resolve')) body = { delivery: 'direct', trackID: path.split('/')[2], status: 'available', url: demoAudioURL, expiresAt: '2099-01-01T00:00:00Z' }
     else if (path.endsWith('/lyrics')) body = { trackID: path.split('/')[2], lrc: '[00:00]这是本地动效演示\n[00:03]慢下来，听一会儿\n[00:08]保留此刻的节奏\n[00:15]下一首，依然轻柔', translatedLrc: '' }
     else throw new Error('Unhandled sample API: ' + method + ' ' + path)
     await route.fulfill({ json: body })
@@ -203,7 +208,7 @@ try {
   await page.locator('.listening-link').click()
   await page.evaluate(() => scrollTo(0, 0))
   await proveBackground(page, true)
-  check('targeted proof has no browser errors or external requests', report.errors.length === 0 && report.requestsOutsidePreview.length === 0)
+  check('targeted proof has no browser errors or unhandled external requests', report.errors.length === 0 && report.requestsOutsidePreview.length === 0)
   await context.close()
  } else if (process.env.MOTION_PERF === '1') {
   const {context,page} = await setup({viewport:{width:1440,height:960}})
@@ -345,7 +350,7 @@ try {
   await mobileContext.close()
   await rename(await mobileVideo.path(), resolve(artifacts, 'mobile-demo.webm'))
   check('no new browser console/runtime errors', report.errors.length === 0, { errors: report.errors })
-  check('browser requested only local preview', report.requestsOutsidePreview.length === 0)
+  check('all visual-test requests were fulfilled locally without unexpected network access', report.requestsOutsidePreview.length === 0)
  }
 } catch (error) {
   report.failure = error.stack
