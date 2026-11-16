@@ -1,147 +1,273 @@
+
 /* Shared rhythm. Keep business components free of animation state. */
 :root {
   --motion-fast: 140ms;
   --motion-ease: cubic-bezier(.2, .7, .2, 1);
 }
-html { scroll-padding-top: 112px; scroll-padding-bottom: calc(var(--player-height) + 24px); }
-@media (max-width: 760px) {
-  html { scroll-padding-top: 92px; scroll-padding-bottom: 160px; }
+html {
+  scroll-padding-top: 112px;
+  scroll-padding-bottom: calc(var(--player-height) + 24px);
 }
-
+@media (max-width: 760px) {
+  html {
+    scroll-padding-top: 92px;
+    scroll-padding-bottom: 160px;
+  }
+}
 :where(button, a, input, select, .import-file) {
   transition: color var(--motion-fast), background-color var(--motion-fast),
     border-color var(--motion-fast), box-shadow var(--motion-fast),
     opacity var(--motion-fast), transform var(--motion-fast) var(--motion-ease);
 }
-
 :where(button, a, input, select, .import-file):focus-visible {
-  outline: 2px solid #527f50;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 3px;
 }
-
 .search-box {
   transition: border-color 180ms, box-shadow 180ms, background-color 180ms;
 }
 .search-box:focus-within {
-  background: #f1f5ea;
-  border-color: #8caa78;
-  box-shadow: 0 0 0 4px #6a8d4f14;
+  background: var(--surface-subtle);
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 4px var(--shadow-color);
 }
 .search-box input:focus-visible {
-  outline: 2px solid #769b70;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 3px;
   border-radius: 4px;
 }
 .dock-progress:focus-within {
-  outline: 2px solid #527f50;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 4px;
-  box-shadow: 0 0 0 7px #eaf0e3;
+  box-shadow: 0 0 0 7px var(--shadow-color);
 }
-
 .topbar {
   position: sticky;
   top: 0;
   z-index: 35;
-  background: #f8f9f4f5;
+  background: var(--header-bg);
   transition: box-shadow 220ms, background-color 220ms, border-color 220ms;
 }
 .topbar.is-scrolled {
-  background: #f8f9f4;
-  box-shadow: 0 12px 18px -18px #23443870;
-  border-bottom-color: #d3deca;
+  background: var(--paper);
+  box-shadow: 0 12px 18px -18px var(--shadow-color);
+  border-bottom-color: var(--line);
 }
-
 .track-row {
   transition: background-color 160ms, box-shadow 160ms;
 }
-.track-row:focus-within { background: #edf2e5; }
-.track-row:is(.current, .is-selected, [aria-selected="true"]) {
-  box-shadow: inset 3px 0 #8da779;
+.track-row:focus-within {
+  background: var(--surface-subtle);
 }
-.track-info:active { opacity: .7; }
-.track-row:focus-within .track-play > span { display: none; }
-.track-row:focus-within .track-play svg { display: block; }
-.playlist-art > img { transition: transform 280ms var(--motion-ease); }
-.playlist-card-play { transition: opacity 180ms, transform 180ms var(--motion-ease); }
-.playlist-card:focus-visible .playlist-card-play { opacity: 1; transform: none; }
-.playlist-card:focus-visible { border-radius: 13px; }
-.playlist-card:active .playlist-art > img { transform: scale(1.015); }
-.new-playlist-card:active { background: #e5eddb; }
-
+.track-row:is(.current, .is-selected, [aria-selected="true"]) {
+  box-shadow: inset 3px 0 var(--shadow-color);
+}
+.track-info:active {
+  opacity: .7;
+}
+.track-row:focus-within .track-play > span {
+  display: none;
+}
+.track-row:focus-within .track-play svg {
+  display: block;
+}
+.playlist-art > img {
+  transition: transform 280ms var(--motion-ease);
+}
+.playlist-card-play {
+  transition: opacity 180ms, transform 180ms var(--motion-ease);
+}
+.playlist-card:focus-visible .playlist-card-play {
+  opacity: 1;
+  transform: none;
+}
+.playlist-card:focus-visible {
+  border-radius: 13px;
+}
+.playlist-card:active .playlist-art > img {
+  transform: scale(1.015);
+}
+.new-playlist-card:active {
+  background: var(--selected);
+}
 @media (hover: hover) and (pointer: fine) {
-  .track-row:hover { background: #f0f4e9; }
-  .track-row.current:hover { background: #e6eedb; }
+  .track-row:hover {
+    background: var(--hover);
+  }
+  .track-row.current:hover {
+    background: var(--hover);
+  }
   :is(.primary, .subtle, .icon-button, .play-button):not(:disabled):hover {
     transform: translateY(-1px);
   }
-  .play-button:not(:disabled):hover { box-shadow: 0 4px 12px #285b4726; }
-  :is(.main-nav a, .mobile-nav a, .sidebar-playlists > button):hover { color: #315b39; }
-  .search-chip:hover, .dialog-playlists > button:hover { background: #e7eedc; }
-  .playlist-card:hover .playlist-art { box-shadow: 0 5px 16px #23443814; }
+  .play-button:not(:disabled):hover {
+    box-shadow: 0 4px 12px var(--shadow-color);
+  }
+  :is(.main-nav a, .mobile-nav a, .sidebar-playlists > button):hover {
+    color: var(--green);
+  }
+  .search-chip:hover, .dialog-playlists > button:hover {
+    background: var(--hover);
+  }
+  .playlist-card:hover .playlist-art {
+    box-shadow: 0 5px 16px var(--shadow-color);
+  }
 }
 :is(.primary, .subtle, .icon-button, .play-button, .track-actions button):not(:disabled):active {
   transform: scale(.96);
 }
-:is(.main-nav a, .mobile-nav a, .sidebar-playlists > button):active { background: #dbe6d0; }
-.track-actions button:active { background: #d7e4c9; }
-
+:is(.main-nav a, .mobile-nav a, .sidebar-playlists > button):active {
+  background: var(--selected);
+}
+.track-actions button:active {
+  background: var(--selected);
+}
 /* Native touch controls stay visible; hover never gates an action. */
 @media (hover: none), (pointer: coarse) {
-  .playlist-card-play { opacity: 1; transform: none; }
-  .playlist-card:hover img { transform: none; }
-  .track-row:hover .track-play > span { display: initial; }
-  .track-row:hover .track-play svg { display: none; }
-  .track-actions button { min-width: 36px; min-height: 44px; }
-  .primary, .subtle, .icon-button, .search-box .primary, .search-chip { min-height: 44px; }
-  .dock-controls .play-button, .dock-controls .icon-button { min-width: 44px; min-height: 44px; }
-  .track-info { min-height: 44px; }
-  .search-box input { font-size: 16px; }
+  .playlist-card-play {
+    opacity: 1;
+    transform: none;
+  }
+  .playlist-card:hover img {
+    transform: none;
+  }
+  .track-row:hover .track-play > span {
+    display: initial;
+  }
+  .track-row:hover .track-play svg {
+    display: none;
+  }
+  .track-actions button {
+    min-width: 36px;
+    min-height: 44px;
+  }
+  .primary, .subtle, .icon-button, .search-box .primary, .search-chip {
+    min-height: 44px;
+  }
+  .dock-controls .play-button, .dock-controls .icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .track-info {
+    min-height: 44px;
+  }
+  .search-box input {
+    font-size: 16px;
+  }
 }
-
 /* The audio element is never remounted; only artwork/light responds to playing. */
-.now-cover-shadow { transition: opacity 600ms; }
+.now-cover-shadow {
+  transition: opacity 600ms;
+}
 .app-shell.is-playing .now-cover[data-motion-visible] .now-cover-shadow {
   animation: cover-breathe 6s ease-in-out infinite;
 }
-.dock-track > a:first-child { position: relative; flex-shrink: 0; border-radius: 8px; }
+.dock-track > a:first-child {
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
 .dock-track > a:first-child::after {
   content: '';
   position: absolute;
   inset: -3px;
-  border: 1px solid #8ca77c;
+  border: 1px solid var(--line);
   border-radius: 10px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 400ms;
 }
-.app-shell.is-playing .dock-track > a:first-child::after { opacity: .6; }
-.player-dock.is-loading .dock-track > a:first-child::after { opacity: .25; }
-.player-dock .play-button svg { animation: control-in 180ms var(--motion-ease); }
-
-.modal-shade { animation: veil-in 160ms ease-out; }
-.dialog { animation: panel-in 220ms var(--motion-ease); }
-.lyrics-screen { animation: panel-in 240ms var(--motion-ease); }
-.empty-state, .notice, .playback-notice, .share-view, .library-favorites { animation: veil-in 200ms ease-out; }
-.toast { animation: toast-in 200ms var(--motion-ease); }
+.app-shell.is-playing .dock-track > a:first-child::after {
+  opacity: .6;
+}
+.player-dock.is-loading .dock-track > a:first-child::after {
+  opacity: .25;
+}
+.player-dock .play-button svg {
+  animation: control-in 180ms var(--motion-ease);
+}
+.modal-shade {
+  animation: veil-in 160ms ease-out;
+}
+.dialog {
+  animation: panel-in 220ms var(--motion-ease);
+}
+.lyrics-screen {
+  animation: panel-in 240ms var(--motion-ease);
+}
+.empty-state, .notice, .playback-notice, .share-view, .library-favorites {
+  animation: veil-in 200ms ease-out;
+}
+.toast {
+  animation: toast-in 200ms var(--motion-ease);
+}
 .motion-toolbar-enter-active, .motion-toolbar-leave-active {
   transition: opacity 180ms, transform 180ms var(--motion-ease);
 }
-.motion-toolbar-enter-from, .motion-toolbar-leave-to { opacity: 0; transform: translateY(5px); }
-
-@keyframes cover-breathe { 0%,100% { opacity: .17; } 50% { opacity: .35; } }
-@keyframes control-in { from { opacity: .5; transform: scale(.88); } to { opacity: 1; transform: none; } }
-@keyframes veil-in { from { opacity: .5; } to { opacity: 1; } }
-@keyframes panel-in { from { opacity: .65; transform: translateY(7px); } to { opacity: 1; transform: none; } }
-@keyframes toast-in { from { opacity: .5; transform: translate(-50%, 5px); } to { opacity: 1; transform: translate(-50%, 0); } }
-
+.motion-toolbar-enter-from, .motion-toolbar-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
+}
+@keyframes cover-breathe {
+  0%,100% {
+    opacity: .17;
+  }
+  50% {
+    opacity: .35;
+  }
+}
+@keyframes control-in {
+  from {
+    opacity: .5;
+    transform: scale(.88);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes veil-in {
+  from {
+    opacity: .5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes panel-in {
+  from {
+    opacity: .65;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: .5;
+    transform: translate(-50%, 5px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
 /* Includes teleported overlays and existing listening/loading loops. */
 :root[data-motion-paused] *, :root[data-motion-paused] *::before, :root[data-motion-paused] *::after {
   animation-play-state: paused !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
   .lyric-line.is-current, .playlist-card:hover img, .playlist-card:active .playlist-art > img,
   .motion-toolbar-enter-from, .motion-toolbar-leave-to,
   :is(.primary, .subtle, .icon-button, .play-button):hover,
-  :is(.primary, .subtle, .icon-button, .play-button, .track-actions button):active { transform: none; }
+  :is(.primary, .subtle, .icon-button, .play-button, .track-actions button):active {
+    transform: none;
+  }
 }
