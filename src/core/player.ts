@@ -1,7 +1,7 @@
 import { reactive } from 'vue';
 import { musicApi } from './api';
 import { withTranslation } from './lyrics';
-import type { LyricLine, MusicApi, Queue, Resolution, Track } from './types';
+import type { LyricLine, MusicApi, Queue, Resolution, Track, PlaybackSourceInfo } from './types';
 
 type RepeatMode = 'off' | 'all' | 'one';
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -14,6 +14,7 @@ export interface PlayerState {
   loading: boolean;
   status: string;
   resolutionStatus: string;
+  sourceInfo: PlaybackSourceInfo | null;
   lyricLines: LyricLine[];
   volume: number;
   repeat: RepeatMode;
@@ -54,6 +55,7 @@ export class NativePlayer {
     loading: false,
     status: '',
     resolutionStatus: '',
+    sourceInfo: null,
     lyricLines: [],
     volume: 0.8,
     repeat: 'off',
@@ -225,6 +227,7 @@ export class NativePlayer {
     this.recovering = false;
     this.failed = false;
     this.resolution = undefined;
+    this.state.sourceInfo = null;
     this.pendingPosition = Math.max(0, positionMs);
     this.state.positionMs = this.pendingPosition;
     this.state.durationMs = track.durationMs;
@@ -281,6 +284,7 @@ export class NativePlayer {
     this.metadataReady = false;
     this.state.loading = true;
     this.state.resolutionStatus = resolution.status;
+    this.state.sourceInfo = {mediaSource:resolution.mediaSource,originTrackID:resolution.originTrackID,matchMethod:resolution.matchMethod,verification:resolution.verification,reason:resolution.reason};
     this.state.status =
       resolution.status === 'preview' ? '当前音源仅可试听' : '';
     this.audio.src = resolution.url!;
@@ -387,6 +391,7 @@ export class NativePlayer {
     }
   }
   private unavailable(reason: string) {
+    this.state.sourceInfo = null;
     this.failed = true;
     this.state.loading = false;
     this.state.playing = false;
@@ -554,6 +559,7 @@ export class NativePlayer {
     this.state.status = '';
     this.state.resolutionStatus = '';
     this.state.lyricLines = [];
+    this.state.sourceInfo = null;
     this.touch();
     void this.saveQueue();
   }

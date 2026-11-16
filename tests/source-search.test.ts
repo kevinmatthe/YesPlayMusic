@@ -1,8 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createSourceSearch } from '../src/source-search'
+import { createSourceSearch, explicitSearchQuery } from '../src/source-search'
 import type { Track } from '../src/core'
 const track=(source:string):Track=>({id:source+':123',source,externalID:'123',title:'Same title (Live)',artist:source,album:'edition',picture:'',durationMs:75000})
 describe('catalogue source switching',()=>{
+ it('records only an explicitly submitted search, not background discovery or source refresh',async()=>{
+  const record=vi.fn(),search=createSourceSearch({search:vi.fn(async()=>[track('netease')])},record)
+  await search.run('background');expect(record).not.toHaveBeenCalled()
+  await search.run('  own query  ',true);expect(record).toHaveBeenCalledExactlyOnceWith('own query','netease')
+  await search.run('  ',true);expect(record).toHaveBeenCalledTimes(1)
+ })
+ it('accepts only a bounded string q from an explicit route, never owner inputs',()=>{
+  expect(explicitSearchQuery('  Beyond  ')).toBe('Beyond')
+  expect(explicitSearchQuery(['first','second'])).toBe('')
+  expect(explicitSearchQuery({open_id:'spoof'})).toBe('')
+  expect(explicitSearchQuery('x'.repeat(201))).toHaveLength(200)
+ })
  it('discards a late previous platform response and preserves exact selected IDs',async()=>{
   let finish!:(value:Track[])=>void
   const api={search:vi.fn((_q:string,source?:string)=>source==='netease'?new Promise<Track[]>(resolve=>finish=resolve):Promise.resolve([track('kuwo')]))}

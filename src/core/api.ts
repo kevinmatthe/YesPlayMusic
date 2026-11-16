@@ -3,6 +3,9 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import type {
   AuthOptions,
   CatalogueOptions,
+  Recommendations,
+  SearchRecord,
+  PlaylistImportResult,
   ExportData,
   HistoryItem,
   Lyrics,
@@ -107,6 +110,35 @@ export function createMusicApi(
     legacy.clear();
   }
   const api: MusicApi = {
+    async recommendations(limit=12){
+      const result=await request<Recommendations>('/recommendations?limit='+E(String(limit)))
+      remember(result.tracks.map(item=>item.track))
+      return result
+    },
+    searchHistory:(limit=20)=>request<{searches:SearchRecord[]}>('/search-history?limit='+E(String(limit))),
+    recordSearch:async(query,source)=>{await request('/search-history','POST',{query,source})},
+    clearSearchHistory:async()=>{await request('/search-history','DELETE',{})},
+    async importNetEasePlaylist(urlOrID,name){
+      const input=urlOrID.trim()
+      if(!input)throw new MusicApiError(400,'请输入公开网易歌单链接或数字 ID。')
+      let result:PlaylistImportResult
+      try{result=await request<PlaylistImportResult>('/imports/netease-playlist','POST',{urlOrID:input,...(name?.trim()?{name:name.trim()}: {})})}
+      catch(error){
+        if(error instanceof MusicApiError){
+          const hints:Record<string,string>={netease_playlist_full_url_required:'短链接暂不支持，请复制完整的网易公开歌单链接或填写数字 ID。',invalid_name:'新歌单名称需为 1–100 个字符。',public_playlist_empty:'公开歌单里没有可导入的曲目。',public_playlist_metadata_incomplete:'部分曲目信息缺失，本次未创建歌单，请稍后重试。',public_playlist_import_not_configured:'公开歌单导入尚未配置，请稍后重试。',provider_rate_limited:'网易曲库请求较多，请稍后再导入。'}
+          if(hints[error.message])throw new MusicApiError(error.status,hints[error.message])
+          if(error.status===413||/too_large|too_many|limit_exceeded/.test(error.message))throw new MusicApiError(error.status,'歌单超过可导入上限（1000 首），请先拆分后重试。')
+          if([403,404].includes(error.status))throw new MusicApiError(error.status,'无法读取这个公开歌单，可能为私有、受限或链接已失效。')
+          if(error.status===400)throw new MusicApiError(error.status,'请输入有效的公开网易歌单链接或数字 ID。')
+          if(error.status===422)throw new MusicApiError(error.status,'歌单里没有可导入的有效曲目，或曲目信息暂不可用。')
+          if(error.status>=500)throw new MusicApiError(error.status,'曲库暂不可用，请稍后再导入。')
+        }
+        throw error
+      }
+      if(!result.playlist?.id||!Array.isArray(result.playlist.tracks)||!Number.isFinite(result.imported)||!Number.isFinite(result.duplicatesSkipped)||!result.sourcePlaylistID)throw new MusicApiError(502,'导入结果暂时不完整，请刷新歌单确认是否已创建。')
+      remember(result.playlist.tracks)
+      return result
+    },
     authOptions: () => request<AuthOptions>('/auth/options'),
     catalogOptions: () => request<CatalogueOptions>('/catalog/options'),
     ensureGuest() {

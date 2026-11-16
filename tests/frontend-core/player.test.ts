@@ -124,6 +124,16 @@ const flush = async () => {
 };
 
 describe('native single player', () => {
+  it('keeps source metadata bound to the current stable ID when resolutions arrive out of order',async()=>{
+    const late=deferred<Awaited<ReturnType<MusicApi['resolve']>>>()
+    const {player}=setup({resolve:vi.fn(id=>id===A.id?late.promise:Promise.resolve({...available(id),mediaSource:'netease:account',originTrackID:id,verification:'id_and_duration',matchMethod:'provider_external_id'}))})
+    const old=player.playTracks([A,B]);await player.playAt(1)
+    expect(player.state.sourceInfo).toMatchObject({mediaSource:'netease:account',originTrackID:B.id})
+    late.resolve({...available(A.id),mediaSource:'unm:pyncmd',originTrackID:A.id});await old
+    expect(player.currentTrack?.id).toBe(B.id)
+    expect(player.state.sourceInfo).toMatchObject({mediaSource:'netease:account',originTrackID:B.id})
+    player.clear();expect(player.state.sourceInfo).toBeNull()
+  })
   it('restores the server queue paused and seeks only after metadata', async () => {
     const { player, audio } = setup({
       queue: vi

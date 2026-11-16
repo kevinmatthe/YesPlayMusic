@@ -26,7 +26,16 @@ export interface Resolution {
   url?: string;
   expiresAt?: string;
   reason?: string;
+  mediaSource?: string;
+  originTrackID?: string;
+  matchMethod?: string;
+  verification?: string;
 }
+export type PlaybackSourceInfo=Pick<Resolution,'mediaSource'|'originTrackID'|'matchMethod'|'verification'|'reason'>;
+export interface Recommendation { track:Track; reason:string; basis:'likes'|'history'|'search'|'discovery' }
+export interface Recommendations { tracks:Recommendation[]; personalized:boolean }
+export interface SearchRecord { query:string; source:string; count:number; lastSearchedAt:string }
+export interface PlaylistImportResult { playlist:Playlist; imported:number; duplicatesSkipped:number; sourcePlaylistID:string }
 export interface Lyrics {
   trackID: string;
   lrc: string;
@@ -72,6 +81,11 @@ export interface CatalogueOptions {
   sources: CatalogueSource[];
 }
 export interface MusicApi {
+  recommendations(limit?:number):Promise<Recommendations>;
+  searchHistory(limit?:number):Promise<{searches:SearchRecord[]}>;
+  recordSearch(query:string,source:string):Promise<void>;
+  clearSearchHistory():Promise<void>;
+  importNetEasePlaylist(urlOrID:string,name?:string):Promise<PlaylistImportResult>;
   catalogOptions(): Promise<CatalogueOptions>;
   authOptions(): Promise<AuthOptions>;
   ensureGuest(): Promise<Session>;

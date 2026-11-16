@@ -1,14 +1,18 @@
-import { computed, markRaw, ref } from 'vue'
+import { computed, markRaw, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { createPlayer, musicApi } from '../core'
 import type { Playlist, Track, HistoryItem, Share, ExportData, Session } from '../core'
 import { initializeIdentity, browserIdentityHost, IdentityNavigation } from '../identity'
+import { createInterestFeed } from '../interest-feed'
+import { loadDiscovery } from '../discovery'
 
 export const useMusic = defineStore('music', () => {
   const player=markRaw(createPlayer())
   const playlists=ref<Playlist[]>([]), likes=ref<Track[]>([]), history=ref<HistoryItem[]>([]), shares=ref<Share[]>([])
   const ready=ref(false), busy=ref(false), error=ref(''), toast=ref(''), userKind=ref('guest')
   const user=ref<Session['user']>()
+  const interests=markRaw(createInterestFeed(musicApi,()=>loadDiscovery(musicApi)))
+  watch(()=>user.value?.id||'',id=>interests.setOwner(id),{flush:'sync'})
   const feishuEnabled=ref(false),feishuAppID=ref(''),inFeishu=ref(false),identityMessage=ref('')
   const selectedID=ref(''), selected=computed(()=>playlists.value.find(p=>p.id===selectedID.value))
   const likedIDs=computed(()=>new Set(likes.value.map(t=>t.id)))
@@ -65,5 +69,5 @@ export const useMusic = defineStore('music', () => {
   async function loadShares(){await run(async()=>shares.value=await musicApi.shares())}
   async function revoke(id:string){await run(async()=>{await musicApi.revokeShare(id);await loadShares();notify('分享已撤销')})}
   async function importData(data:ExportData){await run(async()=>{await musicApi.importData(data);await refresh();notify('已复制到当前音乐空间')})}
-  return {player,playlists,likes,history,shares,ready,busy,error,toast,userKind,user,feishuEnabled,inFeishu,identityMessage,selectedID,selected,likedIDs,run,notify,refresh,initialize,changeSession,connectFeishu,refreshFeishuProfile,create,update,remove,toggleLike,add,loadHistory,clearHistory,loadShares,revoke,importData}
+  return {player,playlists,likes,history,shares,ready,busy,error,toast,userKind,user,interests,feishuEnabled,inFeishu,identityMessage,selectedID,selected,likedIDs,run,notify,refresh,initialize,changeSession,connectFeishu,refreshFeishuProfile,create,update,remove,toggleLike,add,loadHistory,clearHistory,loadShares,revoke,importData}
 })

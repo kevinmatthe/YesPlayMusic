@@ -3,7 +3,7 @@ import { artworkURL } from '../artwork'
 import type { Track } from '../core'
 import { useMusic } from '../stores/music'
 import Icon from './Icon.vue'
-const props=withDefaults(defineProps<{tracks:Track[];editable?:boolean;queue?:boolean}>(),{editable:false,queue:false})
+const props=withDefaults(defineProps<{tracks:Track[];editable?:boolean;queue?:boolean;notes?:Record<string,string>}>(),{editable:false,queue:false})
 const emit=defineEmits<{play:[index:number];add:[track:Track];share:[track:Track];remove:[index:number];move:[from:number,to:number]}>()
 const music=useMusic()
 function sourceName(source:string){return source==='netease'?'网易云':source==='kuwo'?'酷我':source==='legacy'?'旧卡片':source}
@@ -14,7 +14,7 @@ function time(ms:number){const s=Math.floor(ms/1000);return `${Math.floor(s/60)}
   <div v-for="(track,index) in props.tracks" :key="`${track.id}:${index}`" class="track-row" :class="{current:music.player.currentTrack?.id===track.id}" :data-track-id="track.id" role="listitem">
    <button class="track-play" :aria-label="`播放 ${track.title}`" @click="emit('play',index)"><span>{{String(index+1).padStart(2,'0')}}</span><Icon name="play" :size="15"/></button>
    <img class="track-cover" :src="artworkURL(track.picture)" alt="" loading="lazy" @error="($event.target as HTMLImageElement).src='/music-cover.svg'"/>
-   <button class="track-info" @click="emit('play',index)"><strong>{{track.title}}</strong><span><b class="track-source">{{sourceName(track.source)}}</b> {{track.artist || '未知歌手'}} <i v-if="track.album">· {{track.album}}</i></span></button>
+   <button class="track-info" @click="emit('play',index)"><strong>{{track.title}}</strong><span><b class="track-source">{{sourceName(track.source)}}</b> {{track.artist || '未知歌手'}} <i v-if="track.album">· {{track.album}}</i></span><small v-if="notes?.[track.id]" class="track-reason">{{notes[track.id]}}</small></button>
    <span class="track-duration">{{time(track.durationMs)}}</span>
    <div class="track-actions">
     <button :class="{liked:music.likedIDs.has(track.id)}" :aria-label="`喜欢 ${track.title}`" :aria-pressed="music.likedIDs.has(track.id)" @click="music.toggleLike(track)"><Icon name="heart" :size="18"/></button>
@@ -29,4 +29,5 @@ function time(ms:number){const s=Math.floor(ms/1000);return `${Math.floor(s/60)}
 
 <style scoped>
 .track-source{font-size:.65rem;letter-spacing:.02em;font-weight:600;color:#73844d;border:1px solid #dbe3c9;border-radius:4px;padding:1px 4px;margin-right:4px;white-space:nowrap}
+.track-reason{display:block;max-width:100%;font-size:.65rem;line-height:1.6;color:#80916c;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:3px}
 </style>
