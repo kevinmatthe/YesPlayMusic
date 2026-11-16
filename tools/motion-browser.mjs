@@ -6,6 +6,7 @@ import { mkdir, writeFile, rename } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE || '/tmp/jellyfin-review-browser/node_modules/playwright-core/index.mjs').href)
 const base = process.env.MOTION_BASE || 'http://127.0.0.1:37841'
@@ -64,16 +65,130 @@ async function setup(options = {}) {
   const context = await browser.newContext(options)
   await mock(context)
   const page = await context.newPage()
+  const staticReads = []
+  if (process.env.MOTION_BACKGROUND === '1') {
+    report.loadedStaticArtifacts = []
+    page.on('response', response => {
+      if (['document', 'script', 'stylesheet'].includes(response.request().resourceType())) staticReads.push((async () => {
+        const bytes = await response.body()
+        report.loadedStaticArtifacts.push({ path: new URL(response.url()).pathname, status: response.status(), sha256: createHash('sha256').update(bytes).digest('hex') })
+      })())
+    })
+  }
   page.setDefaultTimeout(12000)
   page.on('pageerror', error => report.errors.push(error.message))
   page.on('console', message => { if (message.type() === 'error') report.errors.push(message.text()) })
   await page.goto(base + '/library')
   await page.locator('.playlist-card').first().waitFor()
   await page.waitForTimeout(400)
+  await Promise.all(staticReads)
   return { context, page }
 }
 const audio = page => page.locator('audio').evaluate(a => ({ time: a.currentTime, paused: a.paused, count: document.querySelectorAll('audio').length }))
 const loops = page => page.evaluate(() => document.getAnimations().filter(a => a.effect?.getTiming().iterations === Infinity).map(a => ({ name: a.animationName, state: a.playState })))
+
+function requireRunningForeground(snapshot) {
+  assert(snapshot.loopCount > 0, 'Foreground loop set must be nonempty')
+  assert.equal(snapshot.hidden, false, 'Foreground document must be visible')
+  assert.equal(snapshot.playing, true, 'Audio must be playing before the visibility change')
+  assert.equal(snapshot.path, '/play')
+  assert.equal(snapshot.current.filter(a => a.name === 'bars' && a.target.startsWith('.listening-bars')).length, 3)
+  assert.equal(snapshot.current.filter(a => a.name === 'cover-breathe' && a.target === '.now-cover-shadow').length, 1)
+  assert(snapshot.current.every(a => a.state === 'running'), 'All captured foreground loops must be running')
+}
+
+async function proveBackground(page, testEmptyGuard = false) {
+  const proof = report.backgroundProof = { method: 'document.hidden + visibilitychange simulation; not a physical phone background/lock-screen test' }
+  // Wait for audio events, Vue classes, IntersectionObserver and actual CSS animations.
+  const waitForPlayingLoops = () => page.waitForFunction(() => {
+    const active = document.getAnimations().filter(a => a.effect?.getTiming().iterations === Infinity && a.playState === 'running' && !a.pending && a.currentTime > 0)
+    return !document.hidden && !document.documentElement.hasAttribute('data-motion-paused') &&
+      !document.querySelector('audio').paused && document.querySelector('.app-shell.is-playing') &&
+      active.filter(a => a.animationName === 'bars' && a.effect.target.matches('.listening-bars i')).length === 3 &&
+      active.some(a => a.animationName === 'cover-breathe' && a.effect.target.matches('.now-cover-shadow'))
+  }, null, { polling: 50 })
+  await waitForPlayingLoops()
+  const retained = await page.evaluateHandle(() => document.getAnimations()
+    .filter(a => a.effect?.getTiming().iterations === Infinity)
+    .map((animation, index) => {
+      const target = animation.effect.target
+      const record = { animation, id: `original-${index + 1}`, name: animation.animationName, element: target,
+        target: target.matches('.listening-bars i') ? `.listening-bars i:nth-child(${[...target.parentElement.children].indexOf(target) + 1})` : (target.classList.length ? '.' + [...target.classList].join('.') : target.tagName.toLowerCase()), cancelledEvent: false }
+      record.listener = () => { record.cancelledEvent = true }
+      animation.addEventListener('cancel', record.listener)
+      return record
+    }))
+  const snapshot = () => retained.evaluate(records => {
+    const current = document.getAnimations().filter(a => a.effect?.getTiming().iterations === Infinity)
+    const describe = a => ({ name: a.animationName, state: a.playState, pending: a.pending,
+      target: a.effect.target.matches('.listening-bars i') ? `.listening-bars i:nth-child(${[...a.effect.target.parentElement.children].indexOf(a.effect.target) + 1})` : (a.effect.target.classList.length ? '.' + [...a.effect.target.classList].join('.') : a.effect.target.tagName.toLowerCase()) })
+    return { hidden: document.hidden, path: location.pathname, playing: !document.querySelector('audio').paused,
+      rootMotionPaused: document.documentElement.hasAttribute('data-motion-paused'), loopCount: current.length,
+      runningCount: current.filter(a => a.playState === 'running').length,
+      current: current.map(a => ({ ...describe(a), sameAsBefore: records.some(r => r.animation === a) })),
+      originals: records.map(r => ({ id: r.id, name: r.name, target: r.target, targetConnected: r.element.isConnected,
+        state: r.animation.playState, pending: r.animation.pending, currentTime: r.animation.currentTime,
+        enumerated: current.includes(r.animation), cancelledEvent: r.cancelledEvent,
+        outcome: r.animation.playState === 'paused' ? 'paused' : r.animation.playState === 'idle' && !current.includes(r.animation) ? 'cancelled' : 'running-or-unexpected' })) }
+  })
+  const hiddenDescriptor = await page.evaluateHandle(() => Object.getOwnPropertyDescriptor(document, 'hidden'))
+  try {
+    if (testEmptyGuard) {
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await page.waitForFunction(() => document.getAnimations().every(a => a.effect?.getTiming().iterations !== Infinity), null, { polling: 50 })
+      const empty = await snapshot()
+      assert.equal(empty.loopCount, 0, 'Negative control must actually have no loops')
+      assert.throws(() => requireRunningForeground(empty), /must be nonempty/)
+      proof.emptySetNegativeControl = { loopCount: empty.loopCount, rejected: true, reason: 'Foreground loop set must be nonempty' }
+      await page.emulateMedia({ reducedMotion: 'no-preference' })
+      await waitForPlayingLoops()
+      // The negative control cancelled its original objects; retain the new running set.
+      await retained.evaluate(records => {
+        records.forEach(r => r.animation.removeEventListener('cancel', r.listener))
+        document.getAnimations().filter(a => a.effect?.getTiming().iterations === Infinity).forEach((animation, i) => {
+          const r = records[i]; r.animation = animation; r.name = animation.animationName; r.element = animation.effect.target; r.cancelledEvent = false
+          r.target = r.element.matches('.listening-bars i') ? `.listening-bars i:nth-child(${[...r.element.parentElement.children].indexOf(r.element) + 1})` : (r.element.classList.length ? '.' + [...r.element.classList].join('.') : r.element.tagName.toLowerCase())
+          animation.addEventListener('cancel', r.listener)
+        })
+      })
+    }
+    proof.before = await snapshot()
+    requireRunningForeground(proof.before)
+    assert.equal(proof.before.originals.length, proof.before.loopCount)
+    assert(proof.before.originals.every(a => a.state === 'running' && !a.pending && a.currentTime > 0 && a.enumerated && a.targetConnected), 'Every original must be a connected running foreground object with elapsed time')
+    check('background proof starts with 3 running bars and 1 running cover loop', true, { count: proof.before.loopCount })
+    await shot(page, 'background-before')
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')) })
+    await page.waitForFunction(records => {
+      const current = document.getAnimations().filter(a => a.effect?.getTiming().iterations === Infinity)
+      return document.hidden && document.documentElement.hasAttribute('data-motion-paused') && records.length > 0 &&
+        records.every(r => r.element.isConnected && ((r.animation.playState === 'paused' && !r.animation.pending) || (r.animation.playState === 'idle' && !current.includes(r.animation)))) &&
+        !current.some(a => a.playState === 'running')
+    }, retained, { polling: 50 })
+    proof.after = await snapshot()
+    await page.waitForTimeout(150)
+    proof.afterSettled = await snapshot()
+    assert.equal(proof.afterSettled.originals.length, proof.before.loopCount)
+    assert(proof.afterSettled.originals.every((a, i) => a.targetConnected && ['paused', 'cancelled'].includes(a.outcome) &&
+      (a.outcome === 'cancelled' || a.currentTime === proof.after.originals[i].currentTime)), 'Every retained original must stop advancing or be cancelled')
+    assert.equal(proof.afterSettled.playing, true)
+    assert.equal(proof.afterSettled.path, '/play')
+    assert.equal(proof.afterSettled.runningCount, 0)
+    check('background originals pause or cancel and no current loop runs', true, { originals: proof.afterSettled.originals.length, currentRunning: proof.afterSettled.runningCount })
+    await shot(page, 'background-after')
+    await hiddenDescriptor.evaluate(descriptor => { if (descriptor) Object.defineProperty(document, 'hidden', descriptor); else delete document.hidden; document.dispatchEvent(new Event('visibilitychange')) })
+    await waitForPlayingLoops()
+    proof.restored = await snapshot()
+    requireRunningForeground(proof.restored)
+    check('foreground restores all 3 bars and the cover loop', true, { count: proof.restored.loopCount })
+    return proof
+  } finally {
+    await hiddenDescriptor.evaluate(descriptor => { if (descriptor) Object.defineProperty(document, 'hidden', descriptor); else delete document.hidden; document.dispatchEvent(new Event('visibilitychange')) })
+    await retained.evaluate(records => records.forEach(r => r.animation.removeEventListener('cancel', r.listener)))
+    await retained.dispose()
+    await hiddenDescriptor.dispose()
+  }
+}
 async function nav(page, path, mobile = false) {
   await page.locator(`${mobile ? '.mobile-nav' : '.main-nav'} a[href="${path}"]`).first().click()
   await page.waitForURL('**' + path)
@@ -81,7 +196,16 @@ async function nav(page, path, mobile = false) {
 const shot = (page, name) => page.screenshot({ path: resolve(artifacts, name + '.png') })
 
 try {
- if (process.env.MOTION_PERF === '1') {
+ if (process.env.MOTION_BACKGROUND === '1') {
+  const {context,page} = await setup({viewport:{width:1440,height:960}})
+  await page.locator('.sidebar-playlists button').first().click()
+  await page.locator('.track-row').first().locator('.track-info').click()
+  await page.locator('.listening-link').click()
+  await page.evaluate(() => scrollTo(0, 0))
+  await proveBackground(page, true)
+  check('targeted proof has no browser errors or external requests', report.errors.length === 0 && report.requestsOutsidePreview.length === 0)
+  await context.close()
+ } else if (process.env.MOTION_PERF === '1') {
   const {context,page} = await setup({viewport:{width:1440,height:960}})
   await page.locator('.sidebar-playlists button').first().click()
   await page.waitForFunction(() => document.querySelectorAll('.track-row').length === 300)
@@ -109,7 +233,7 @@ try {
   await page.getByRole('textbox', { name: '搜索歌曲', exact: true }).focus()
   await page.waitForTimeout(200)
   await shot(page, 'desktop-search-focus')
-  check('search keyboard focus visible', await page.locator('.search-box input').evaluate(e => e.matches(':focus-visible') && getComputedStyle(e).outlineStyle !== 'none'))
+  check('programmatic search focus-visible style is visible (not full Tab navigation)', await page.locator('.search-box input').evaluate(e => e.matches(':focus-visible') && getComputedStyle(e).outlineStyle !== 'none'))
   await page.getByRole('textbox', { name: '搜索歌曲', exact: true }).fill('清晨')
   await page.locator('.search-box .primary').click()
   await page.locator('.track-row').first().waitFor()
@@ -159,13 +283,7 @@ try {
   await shot(page, 'desktop-progress-focus')
   check('transparent progress input has visible focus on its wrapper', await page.locator('.dock-progress').evaluate(e => e.matches(':focus-within') && getComputedStyle(e).outlineStyle === 'solid'))
   await page.locator('.player-dock button[aria-label="播放"]').click()
-  // Visibility simulation exercises exactly the browser visibilitychange handler.
-  // Headless Chromium cannot reproduce a physical phone lock-screen transition.
-  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')) })
-  check('background visibility pauses every CSS loop', (await loops(page)).every(a => a.state === 'paused'), { method: 'document.hidden + visibilitychange simulation', loops: await loops(page) })
-  await page.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')) })
-  await page.waitForTimeout(150)
-  check('foreground resumes appropriate loops', (await loops(page)).some(a => a.state === 'running'))
+  await proveBackground(page)
   await page.locator('.now-information button').filter({ hasText: '打开歌词' }).click()
   await page.locator('.lyrics-screen').waitFor()
   await page.waitForTimeout(300)
@@ -235,5 +353,5 @@ try {
   process.exitCode = 1
 } finally {
   await browser.close()
-  await writeFile(resolve(artifacts, process.env.MOTION_PERF==='1'?'performance-results.json':'browser-results.json'), JSON.stringify(report, null, 2) + '\n')
+  await writeFile(resolve(artifacts, process.env.MOTION_BACKGROUND==='1'?'background-results.json':process.env.MOTION_PERF==='1'?'performance-results.json':'browser-results.json'), JSON.stringify(report, null, 2) + '\n')
 }
