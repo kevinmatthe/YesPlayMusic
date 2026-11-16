@@ -124,6 +124,197 @@ const flush = async () => {
 };
 
 describe('native single player', () => {
+  it('saves a batch in order, preserving duplicate queue entries and uninterrupted playback', async () => {
+    const { player, audio, api } = setup();
+    await player.initialize();
+    await player.playTracks([A]);
+    audio.ready();
+    await flush();
+    audio.tick(17);
+    const source = audio.src;
+
+    const result = await player.enqueueMany([B, A]);
+
+    expect(result).toEqual({ accepted: [B, A], failed: [] });
+    expect(api.saveQueue).toHaveBeenCalledTimes(1);
+    expect(api.saveQueue).toHaveBeenCalledWith(player.deviceID, {
+      revision: 0, trackIDs: [A.id, B.id, A.id], currentIndex: 0, positionMs: 17000,
+    });
+    expect(player.state.tracks.map(t => t.id)).toEqual([A.id, B.id, A.id]);
+    expect(player.currentTrack?.id).toBe(A.id);
+    expect(audio.src).toBe(source);
+    expect(audio.currentTime).toBe(17);
+    expect(audio.paused).toBe(false);
+  });
+  it('reports capacity overflow as failed songs without saving more than 1000 entries', async () => {
+    const ids = Array.from({ length: 999 }, () => A.id);
+    const { player, api } = setup({ queue: vi.fn().mockResolvedValue({ ...empty, revision: 3, trackIDs: ids }) });
+    await player.initialize();
+
+    const result = await player.enqueueMany([B, C]);
+
+    expect(result.accepted).toEqual([B]);
+    expect(result.failed).toEqual([C]);
+    expect(result.error).toContain('1000');
+    expect(player.state.tracks).toHaveLength(1000);
+    expect(api.saveQueue).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.saveQueue).mock.calls[0]![1].trackIDs).toHaveLength(1000);
+    const full = await player.enqueueMany([C]);
+    expect(full.accepted).toEqual([]);
+    expect(full.failed).toEqual([C]);
+    expect(api.saveQueue).toHaveBeenCalledTimes(1);
+  });
+  it('keeps a failed batch out of the local queue and safely retries just that batch', async () => {
+    const save = vi.fn<MusicApi['saveQueue']>()
+      .mockRejectedValueOnce(new Error('network failed'))
+      .mockImplementation(async (_device, q) => ({ ...q, revision: q.revision + 1 }));
+    const { player } = setup({ saveQueue: save });
+    await player.initialize();
+    await player.playTracks([A]);
+
+    const failed = await player.enqueueMany([B, C]);
+
+    expect(failed.accepted).toEqual([]);
+    expect(failed.failed).toEqual([B, C]);
+    expect(failed.error).toContain('network failed');
+    expect(player.state.tracks.map(t => t.id)).toEqual([A.id]);
+    expect((await player.enqueueMany(failed.failed)).accepted).toEqual([B, C]);
+    expect(player.state.tracks.map(t => t.id)).toEqual([A.id, B.id, C.id]);
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+  it('reconciles a committed batch after a lost response instead of appending it twice', async () => {
+    let stored = { ...empty };
+    const { player } = setup({
+      queue: vi.fn(async () => stored),
+      saveQueue: vi.fn(async (_device, q) => {
+        stored = { ...q, revision: q.revision + 1 };
+        throw new Error('response lost');
+      }),
+    });
+    await player.initialize();
+
+    const result = await player.enqueueMany([A, B]);
+
+    expect(result.accepted).toEqual([A, B]);
+    expect(result.failed).toEqual([]);
+    expect(player.state.tracks.map(t => t.id)).toEqual([A.id, B.id]);
+    expect(player.state.queueRevision).toBe(1);
+  });
+  it('requires an explicit server reload after a revision conflict and never retries over another window', async () => {
+    const save = vi.fn().mockRejectedValue(Object.assign(new Error('revision conflict'), { status: 409 }));
+    const { player, api } = setup({ saveQueue: save });
+    await player.initialize();
+
+    const result = await player.enqueueMany([A, B]);
+
+    expect(result.accepted).toEqual([]);
+    expect(result.failed).toEqual([A, B]);
+    expect(result.error).toContain('服务器队列');
+    expect(player.state.queueConflict).toBe(true);
+    expect(player.state.tracks).toEqual([]);
+    await player.enqueueMany([A, B]);
+    await player.saveQueue();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(api.queue).toHaveBeenCalledTimes(1);
+  });
+  it('blocks a duplicate submission while a batch is pending and shares the save lock with automatic saves', async () => {
+    const pending = deferred<Queue>();
+    const save = vi.fn<MusicApi['saveQueue']>().mockReturnValue(pending.promise);
+    const { player } = setup({ saveQueue: save });
+    await player.initialize();
+    const first = player.enqueueMany([A, B]);
+    const duplicate = await player.enqueueMany([A, B]);
+    const autosave = player.saveQueue();
+
+    expect(duplicate.accepted).toEqual([]);
+    expect(duplicate.failed).toEqual([A, B]);
+    expect(duplicate.error).toContain('正在');
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(player.state.tracks).toHaveLength(0);
+    pending.resolve({ revision: 1, trackIDs: [A.id, B.id], currentIndex: 0, positionMs: 0 });
+    await first;
+    await autosave;
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(player.state.tracks.map(t => t.id)).toEqual([A.id, B.id]);
+  });
+  it('does not append an uncertain batch again after reloading a server queue that already contains it', async () => {
+    const queue = vi.fn<MusicApi['queue']>()
+      .mockResolvedValueOnce(empty)
+      .mockRejectedValueOnce(new Error('readback failed'))
+      .mockResolvedValue({ revision: 1, trackIDs: [A.id, B.id], currentIndex: 0, positionMs: 0 });
+    const save = vi.fn<MusicApi['saveQueue']>().mockRejectedValue(new Error('response lost'));
+    const { player } = setup({ queue, saveQueue: save });
+    await player.initialize();
+    const uncertain = await player.enqueueMany([A, B]);
+    expect(uncertain.accepted).toEqual([]);
+    expect(uncertain.error).toContain('未确认');
+    expect(player.state.queueConflict).toBe(true);
+    await player.reloadQueue();
+
+    const retried = await player.enqueueMany(uncertain.failed);
+
+    expect(retried.accepted).toEqual([A, B]);
+    expect(retried.failed).toEqual([]);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(player.state.tracks.map(t => t.id)).toEqual([A.id, B.id]);
+  });
+  it('reports a confirmed commit if the local queue changes during saving, without replacing the newer local queue', async () => {
+    const pending = deferred<Queue>();
+    const { player } = setup({ saveQueue: vi.fn<MusicApi['saveQueue']>().mockReturnValue(pending.promise) });
+    await player.initialize();
+    await player.playTracks([A]);
+    const adding = player.enqueueMany([B]);
+    player.enqueue(C);
+    pending.resolve({ revision: 1, trackIDs: [A.id, B.id], currentIndex: 0, positionMs: 0 });
+
+    const result = await adding;
+
+    expect(result.accepted).toEqual([B]);
+    expect(result.failed).toEqual([]);
+    expect(result.error).toContain('服务器队列');
+    expect(player.state.queueConflict).toBe(true);
+    expect(player.state.tracks.map(t => t.id)).toEqual([A.id, C.id]);
+  });
+  it('waits for an earlier queue save and uses its new revision for the batch', async () => {
+    const pending = deferred<Queue>();
+    const save = vi.fn<MusicApi['saveQueue']>()
+      .mockReturnValueOnce(pending.promise)
+      .mockImplementation(async (_device, q) => ({ ...q, revision: q.revision + 1 }));
+    const { player } = setup({ saveQueue: save });
+    await player.initialize();
+    await player.playTracks([A]);
+    const earlier = player.saveQueue();
+    const batch = player.enqueueMany([B]);
+    expect(save).toHaveBeenCalledTimes(1);
+    pending.resolve({ revision: 1, trackIDs: [A.id], currentIndex: 0, positionMs: 0 });
+    await earlier;
+
+    expect((await batch).accepted).toEqual([B]);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[1]![1]).toMatchObject({ revision: 1, trackIDs: [A.id, B.id] });
+  });
+  it('retains exact source identities in a batch even when external IDs match', async () => {
+    const kuwo = { ...A, id: 'kuwo:11', source: 'kuwo' };
+    const { player, api } = setup();
+    await player.initialize();
+
+    const result = await player.enqueueMany([A, kuwo, A]);
+
+    expect(result.accepted).toEqual([A, kuwo, A]);
+    expect(player.state.tracks.map(t => t.id)).toEqual(['netease:11', 'kuwo:11', 'netease:11']);
+    expect(vi.mocked(api.saveQueue).mock.calls[0]![1].trackIDs).toEqual(['netease:11', 'kuwo:11', 'netease:11']);
+  });
+  it('does not claim a saved batch when the server returns an invalid result', async () => {
+    const { player } = setup({ saveQueue: vi.fn().mockResolvedValue(null) });
+    await player.initialize();
+
+    const result = await player.enqueueMany([A]);
+
+    expect(result.accepted).toEqual([]);
+    expect(result.failed).toEqual([A]);
+    expect(result.error).toContain('服务器队列');
+    expect(player.state.tracks).toEqual([]);
+  });
   it('keeps source metadata bound to the current stable ID when resolutions arrive out of order',async()=>{
     const late=deferred<Awaited<ReturnType<MusicApi['resolve']>>>()
     const {player}=setup({resolve:vi.fn(id=>id===A.id?late.promise:Promise.resolve({...available(id),mediaSource:'netease:account',originTrackID:id,verification:'id_and_duration',matchMethod:'provider_external_id'}))})

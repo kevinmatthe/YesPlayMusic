@@ -28,6 +28,11 @@ export interface PlayerOptions {
   audioFactory?: () => HTMLAudioElement;
   storage?: StorageLike;
 }
+export interface BatchEnqueueResult {
+  accepted: Track[];
+  failed: Track[];
+  error?: string;
+}
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const fallbackStorage = (): StorageLike => {
@@ -80,6 +85,8 @@ export class NativePlayer {
   private saved = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private saving: Promise<void> | undefined;
+  private adding: Promise<BatchEnqueueResult> | undefined;
+  private uncertainBatch: (BatchEnqueueResult & { requested: Track[]; snapshot: Queue }) | undefined;
   private initialization: Promise<void> | undefined;
   private disposed = false;
   private readonly listeners: Array<[string, EventListener]> = [];
@@ -506,6 +513,100 @@ export class NativePlayer {
     }
     this.touch();
   }
+  async enqueueMany(tracks: Track[]): Promise<BatchEnqueueResult> {
+    const requested = tracks.slice();
+    if (this.adding)
+      return { accepted: [], failed: requested, error: '正在保存队列，请稍后重试。' };
+    const operation = this.appendMany(requested);
+    this.adding = operation;
+    try {
+      return await operation;
+    } finally {
+      this.adding = undefined;
+      if (this.dirty > this.saved) this.scheduleSave();
+    }
+  }
+  private async appendMany(requested: Track[]): Promise<BatchEnqueueResult> {
+    const fail = (error: string): BatchEnqueueResult => ({ accepted: [], failed: requested, error });
+    const sameIDs = (a: string[], b: string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
+    if (!requested.length) return { accepted: [], failed: [] };
+    if (!this.state.ready || this.disposed) return fail('播放器尚未就绪，请稍后重试。');
+    if (this.saving) await this.saving;
+    if (this.state.queueConflict) return fail(this.state.status || '请重新载入服务器队列后再试。');
+    const uncertain = this.uncertainBatch;
+    if (uncertain && sameIDs(requested.map(t => t.id), uncertain.requested.map(t => t.id))) {
+      if (this.state.queueRevision > uncertain.snapshot.revision && sameIDs(this.state.tracks.map(t => t.id), uncertain.snapshot.trackIDs)) {
+        this.uncertainBatch = undefined;
+        return { accepted: uncertain.accepted, failed: uncertain.failed, ...(uncertain.error ? { error: uncertain.error } : {}) };
+      }
+      if (this.state.queueRevision !== uncertain.snapshot.revision)
+        return fail('无法确认上次入队结果，请先核对服务器队列，当前未重复加入。');
+      this.uncertainBatch = undefined;
+    }
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    if ([...this.state.tracks, ...requested].some(t => t.source === 'legacy'))
+      return fail('旧卡片缺少曲库标识，无法保存批量队列。');
+    const room = Math.max(0, 1000 - this.state.tracks.length);
+    const accepted = requested.slice(0, room), failed = requested.slice(room);
+    const capacityError = failed.length ? '队列最多保存 1000 首，多出的歌曲未加入。' : undefined;
+    if (!accepted.length) return fail(capacityError!);
+    const before = this.state.tracks.map(t => t.id);
+    const version = this.dirty;
+    const snapshot: Queue = {
+      revision: this.state.queueRevision,
+      trackIDs: [...before, ...accepted.map(t => t.id)],
+      currentIndex: before.length ? this.state.currentIndex : 0,
+      positionMs: before.length ? Math.max(0, Math.round(this.state.positionMs)) : 0,
+    };
+    const conflict = (error: string) => {
+      this.state.queueConflict = true;
+      this.state.status = error;
+      return fail(error);
+    };
+    let saved: Queue;
+    try {
+      saved = await this.api.saveQueue(this.deviceID, snapshot);
+    } catch (error) {
+      if ((error as { status?: number }).status === 409)
+        return conflict('队列已在其他窗口更新。请重新载入服务器队列后继续编辑。');
+      // A failed response can follow a committed write. Read the revision before
+      // permitting a retry, otherwise the same batch could be appended twice.
+      try {
+        saved = await this.api.queue(this.deviceID);
+      } catch {
+        this.uncertainBatch = { requested, snapshot, accepted, failed, error: capacityError };
+        return conflict('队列保存结果未确认。请重新载入服务器队列后再试。');
+      }
+      if (saved && saved.revision === snapshot.revision) {
+        this.state.status = '队列保存失败：' + message(error);
+        return fail(this.state.status);
+      }
+      if (!saved || saved.revision !== snapshot.revision + 1 || !Array.isArray(saved.trackIDs) || !sameIDs(saved.trackIDs, snapshot.trackIDs)) {
+        this.uncertainBatch = { requested, snapshot, accepted, failed, error: capacityError };
+        return conflict('队列保存结果已变化。请重新载入服务器队列后再试。');
+      }
+    }
+    if (!saved || saved.revision !== snapshot.revision + 1 || !Array.isArray(saved.trackIDs) || !sameIDs(saved.trackIDs, snapshot.trackIDs)) {
+      this.uncertainBatch = { requested, snapshot, accepted, failed, error: capacityError };
+      return conflict('队列保存结果不完整。请重新载入服务器队列后再试。');
+    }
+    this.state.queueRevision = saved.revision;
+    if (this.disposed || !sameIDs(this.state.tracks.map(t => t.id), before)) {
+      const error = '入队已保存，但本页队列发生变化。请重新载入服务器队列后确认结果。';
+      conflict(error);
+      return { accepted, failed, error };
+    }
+    this.state.tracks.push(...accepted);
+    this.saved = version;
+    if (!before.length) {
+      this.state.currentIndex = 0;
+      void this.select(0, false, 0);
+    } else if (this.state.status.startsWith('队列保存失败')) {
+      this.state.status = this.state.resolutionStatus === 'preview' ? '当前音源仅可试听' : '';
+    }
+    return { accepted, failed, ...(capacityError ? { error: capacityError } : {}) };
+  }
   removeAt(index: number) {
     if (index < 0 || index >= this.state.tracks.length) return;
     const current = this.state.currentIndex;
@@ -585,7 +686,10 @@ export class NativePlayer {
   }
   private touch() {
     this.dirty++;
-    if (!this.state.ready || this.state.queueConflict || this.disposed) return;
+    this.scheduleSave();
+  }
+  private scheduleSave() {
+    if (!this.state.ready || this.state.queueConflict || this.disposed || this.adding) return;
     if (this.timer === undefined)
       this.timer = setTimeout(() => {
         this.timer = undefined;
@@ -594,6 +698,10 @@ export class NativePlayer {
   }
   async saveQueue(keepalive = false): Promise<void> {
     if (!this.state.ready || this.state.queueConflict || this.disposed) return;
+    if (this.adding) {
+      await this.adding;
+      return;
+    }
     if (this.saving) {
       await this.saving;
       return;
