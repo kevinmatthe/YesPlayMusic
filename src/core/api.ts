@@ -1,5 +1,7 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { createDeviceAudioCache } from './device-audio-cache';
+import type { DeviceCacheOptions } from './device-audio-cache';
 import type {
   AuthOptions,
   CatalogueOptions,
@@ -305,4 +307,18 @@ export function createMusicApi(
   };
   return api;
 }
-export const musicApi = createMusicApi();
+// Keep the raw factory's direct-delivery/status/host checks unchanged. Only the
+// live client is decorated, and every miss passes through that same factory.
+export function createDeviceCachedMusicApi(
+  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+  options: Omit<DeviceCacheOptions,'fetcher'|'externalAudioURL'|'resolveRemote'|'blockedAudioHosts'> = {}
+) {
+  return createDeviceAudioCache(createMusicApi(fetcher), {
+    ...options,
+    fetcher,
+    externalAudioURL: (url, trackID) => isExternalAudioURL(url.href, trackID),
+    blockedAudioHosts: ['kmhomelab.cn'],
+  });
+}
+export const deviceAudioCache = createDeviceCachedMusicApi();
+export const musicApi = deviceAudioCache.api;

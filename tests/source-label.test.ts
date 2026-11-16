@@ -15,4 +15,11 @@ describe('plain direct source labels',()=>{
  it('does not expose arbitrary provider identifiers in default text',()=>{
   expect(mediaSourceLabel({mediaSource:'<img src=x>',verification:'audio_prefix'},'netease:11')).toBe('外部音源 · 直连音源')
  })
+ it('describes persisted and memory-only local playback without implying another external request',()=>{
+  const cached=mediaSourceLabel({status:'available',mediaSource:'unm:pyncmd',reason:'device_audio_cache:external_source'},'netease:11')
+  expect(cached).toBe('网易云音源 · 本机缓存');expect(cached).not.toMatch(/直连|UNM|pyncmd|核对|完整/)
+  expect(mediaSourceLabel({status:'available',reason:'device_audio_memory:external_source'},'kuwo:11')).toBe('酷我音源 · 本次音频未保存')
+  expect(mediaSourceLabel({status:'preview',reason:'device_audio_memory:external_source'},'netease:11')).toContain('仅能试听')
+  expect(mediaSourceLabel({reason:'device_audio_cache_not_really_cached'},'netease:11')).not.toContain('本机缓存')
+ })
 })
