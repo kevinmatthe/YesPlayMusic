@@ -11,7 +11,7 @@ interface SDKWindow {
   h5sdk?:{ready:(callback:()=>void)=>void}
 }
 export interface IdentityHost {isFeishu:boolean,requestCode:(appID:string)=>Promise<string>,navigation?:IdentityNavigator}
-type IdentityApi=Pick<MusicApi,'authOptions'|'me'|'ensureGuest'|'exchangeFeishu'>
+type IdentityApi=Pick<MusicApi,'authOptions'|'me'|'ensureGuest'|'exchangeFeishu'|'refreshFeishuProfile'>
 export interface IdentityResult {session:Session,options:AuthOptions,message:string}
 const disabled:AuthOptions={guest:true,feishu:{enabled:false,appID:''}}
 
@@ -19,16 +19,20 @@ const disabled:AuthOptions={guest:true,feishu:{enabled:false,appID:''}}
 export class IdentityNavigation extends Error {
   constructor(readonly destination:string){super('正在切换身份验证页面。');this.name='IdentityNavigation'}
 }
-type Intent={version:1,kind:'fresh'|'connect',appID:string,guestID?:string,returnRoute:string,createdAt:number}
+type Intent={version:1,kind:'fresh'|'connect'|'profile',appID:string,guestID?:string,userID?:string,returnRoute:string,createdAt:number}
 type NavigationEnvironment={location:{href:string,replace:(route:string)=>void},storage:Pick<Storage,'getItem'|'setItem'|'removeItem'>,now?:()=>number}
 export interface IdentityNavigator {
   requirePlay:(appID:string)=>void
   beginConnect:(appID:string,guestID:string)=>never
+  beginProfile:(appID:string,userID:string,manual?:boolean)=>never
+  shouldRefreshProfile:(appID:string,userID:string)=>boolean
   consume:(appID:string,user?:Session['user'])=>Intent|undefined
   complete:(intent:Intent|undefined,message:string)=>void
 }
 const INTENT_KEY='betago:feishu-intent-v1'
 const INTENT_TTL=5*60*1000
+const PROFILE_ATTEMPT_KEY='betago:profile-attempt-v1'
+const PROFILE_COOLDOWN=15*60*1000
 const credentialKey=/^(?:code|token|access_token|refresh_token|id_token|sessionToken|session_token|music_session|recoveryCode|recovery_code)$/i
 
 function safeReturnRoute(value:unknown,origin:string):string|undefined {
@@ -50,16 +54,29 @@ export function createIdentityNavigator(env:NavigationEnvironment):IdentityNavig
   function clear(){try{env.storage.removeItem(INTENT_KEY)}catch{/* Guest mode remains usable if browser storage is disabled. */}}
   function current(){return new URL(env.location.href)}
   function move(route:string):never{env.location.replace(route);throw new IdentityNavigation(route)}
-  function start(kind:Intent['kind'],appID:string,guestID?:string):never {
+  function start(kind:Intent['kind'],appID:string,ownerID?:string):never {
     const url=current(),returnRoute=safeReturnRoute(url.href,url.origin)
-    if(!returnRoute||!appID||(kind==='connect'&&!guestID))throw new Error('无法保存身份切换入口，请在播放器页重试。')
+    if(!returnRoute||!appID||(kind!=='fresh'&&!ownerID))throw new Error('无法保存身份切换入口，请在播放器页重试。')
     // Only route and one-shot intent metadata are stored; code and session credentials stay in memory/cookies.
-    env.storage.setItem(INTENT_KEY,JSON.stringify({version:1,kind,appID,guestID,returnRoute,createdAt:now()} satisfies Intent))
+    env.storage.setItem(INTENT_KEY,JSON.stringify({version:1,kind,appID,...(kind==='profile'?{userID:ownerID}:{guestID:ownerID}),returnRoute,createdAt:now()} satisfies Intent))
     return move('/play')
   }
   return {
     requirePlay(appID){if(current().pathname!=='/play')start('fresh',appID)},
     beginConnect:(appID,guestID)=>start('connect',appID,guestID),
+    beginProfile(appID,userID){
+      // A single bounded metadata record, not a code, token, name or avatar.
+      env.storage.setItem(PROFILE_ATTEMPT_KEY,JSON.stringify({appID,userID,attemptedAt:now()}))
+      return start('profile',appID,userID)
+    },
+    shouldRefreshProfile(appID,userID){
+      try{
+        const raw=env.storage.getItem(PROFILE_ATTEMPT_KEY)
+        if(!raw)return true
+        const previous=JSON.parse(raw),age=now()-previous.attemptedAt
+        return previous.appID!==appID||previous.userID!==userID||!Number.isFinite(age)||age<0||age>=PROFILE_COOLDOWN
+      }catch{return false}
+    },
     consume(appID,user){
       let raw:string|null
       try{raw=env.storage.getItem(INTENT_KEY)}catch{return}
@@ -68,8 +85,9 @@ export function createIdentityNavigator(env:NavigationEnvironment):IdentityNavig
       try{
         const value=JSON.parse(raw) as Intent,url=current(),age=now()-value.createdAt
         const returnRoute=safeReturnRoute(value.returnRoute,url.origin)
-        if(url.pathname!=='/play'||value.version!==1||!['fresh','connect'].includes(value.kind)||value.appID!==appID||!Number.isFinite(age)||age<0||age>INTENT_TTL||!returnRoute)return
+        if(url.pathname!=='/play'||value.version!==1||!['fresh','connect','profile'].includes(value.kind)||value.appID!==appID||!Number.isFinite(age)||age<0||age>INTENT_TTL||!returnRoute)return
         if(value.kind==='connect'&&(user?.kind!=='guest'||!value.guestID||value.guestID!==user.id))return
+        if(value.kind==='profile'&&(user?.kind!=='feishu'||!value.userID||value.userID!==user.id))return
         return {...value,returnRoute}
       }catch{return}
     },
@@ -89,6 +107,27 @@ export async function initializeIdentity(api:IdentityApi,host:IdentityHost):Prom
   let existing:Session|undefined
   try{existing=await api.me()}catch(e){if((e as {status?:number}).status!==401)throw e}
   const intent=host.navigation?.consume(options.feishu.appID,existing?.user)
+  if(existing?.user.kind==='feishu'){
+    let session=existing,message=''
+    if(options.feishu.enabled&&options.feishu.appID&&host.isFeishu&&host.navigation){
+      try{
+        if(intent?.kind==='profile'){
+          const code=await host.requestCode(options.feishu.appID)
+          const refreshed=await api.refreshFeishuProfile(code)
+          const originalExpiry=Date.parse(existing.expiresAt),refreshedExpiry=Date.parse(refreshed.expiresAt)
+          if(refreshed.user.kind!=='feishu'||refreshed.user.id!==existing.user.id||!Number.isFinite(originalExpiry)||!Number.isFinite(refreshedExpiry)||refreshedExpiry!==originalExpiry)throw new Error('资料响应身份不符')
+          session=refreshed
+        }else if(existing.user.profileNeedsRefresh&&host.navigation.shouldRefreshProfile(options.feishu.appID,existing.user.id)){
+          host.navigation.beginProfile(options.feishu.appID,existing.user.id)
+        }
+      }catch(error){
+        if(error instanceof IdentityNavigation)throw error
+        message='资料暂未更新，仍保留当前飞书空间。可稍后在个人资料中重试。'
+      }
+    }
+    host.navigation?.complete(intent,message)
+    return {session,options,message}
+  }
   const explicitConnect=existing?.user.kind==='guest'&&intent?.kind==='connect'
   if(existing&&!explicitConnect){
     const message=existing.user.kind==='guest'&&options.feishu.enabled&&host.isFeishu?'当前保留访客空间。可在备份与恢复中切换到飞书个人空间。':''

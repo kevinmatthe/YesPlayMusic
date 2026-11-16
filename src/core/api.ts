@@ -261,6 +261,7 @@ export function createMusicApi(
       reset();
       return session;
     },
+    refreshFeishuProfile: code => request<Session>('/auth/feishu/profile', 'POST', { code }),
     async logout() {
       await request('/auth/logout', 'POST', {});
       reset();

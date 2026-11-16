@@ -4,7 +4,7 @@ import { createIdentityNavigator, type IdentityHost } from '../src/identity'
 
 const fixtures=vi.hoisted(()=>({
   player:{initialize:vi.fn(),pause:vi.fn(),saveQueue:vi.fn(),dispose:vi.fn()},
-  api:{authOptions:vi.fn(),me:vi.fn(),ensureGuest:vi.fn(),exchangeFeishu:vi.fn(),listPlaylists:vi.fn(),likes:vi.fn(),history:vi.fn()},
+  api:{authOptions:vi.fn(),me:vi.fn(),ensureGuest:vi.fn(),exchangeFeishu:vi.fn(),refreshFeishuProfile:vi.fn(),listPlaylists:vi.fn(),likes:vi.fn(),history:vi.fn()},
   host:undefined as IdentityHost|undefined,
 }))
 vi.mock('../src/core',()=>({createPlayer:()=>fixtures.player,musicApi:fixtures.api}))

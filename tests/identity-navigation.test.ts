@@ -8,7 +8,7 @@ const options={guest:true,feishu:{enabled:true,appID:'cli_verified_app'}}
 function service(existing:typeof guest|typeof feishu|undefined=undefined){return {
   authOptions:vi.fn(async()=>options),
   me:vi.fn(async()=>{if(!existing)throw {status:401};return existing}),
-  ensureGuest:vi.fn(async()=>guest),exchangeFeishu:vi.fn(async()=>feishu),
+  ensureGuest:vi.fn(async()=>guest),exchangeFeishu:vi.fn(async()=>feishu),refreshFeishuProfile:vi.fn(async()=>feishu),
 }}
 function environment(route='/library'){
   const values=new Map<string,string>(),clock={value:1800000000000}

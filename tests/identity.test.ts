@@ -8,7 +8,7 @@ function api(existing:typeof guest|typeof feishu|undefined=undefined){return {
   authOptions:vi.fn(async()=>options),
   me:vi.fn(async()=>{if(!existing)throw {status:401};return existing}),
   ensureGuest:vi.fn(async()=>guest),
-  exchangeFeishu:vi.fn(async()=>feishu),
+  exchangeFeishu:vi.fn(async()=>feishu),refreshFeishuProfile:vi.fn(async()=>feishu),
 }}
 describe('verified identity bootstrap',()=>{
   it('creates a visitor outside Feishu without requesting any host login state',async()=>{

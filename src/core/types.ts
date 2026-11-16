@@ -60,7 +60,7 @@ export interface AuthOptions {
   feishu: { enabled: boolean; appID: string };
 }
 export interface Session {
-  user: { id: string; kind: 'guest' | 'feishu' };
+  user: { id: string; kind: 'guest' | 'feishu'; displayName?: string; avatarURL?: string; profileUpdatedAt?: string | null; profileNeedsRefresh?: boolean };
   expiresAt: string;
 }
 export interface CatalogueSource {
@@ -108,6 +108,7 @@ export interface MusicApi {
   recovery(): Promise<string>;
   recover(code: string): Promise<Session>;
   exchangeFeishu(code: string): Promise<Session>;
+  refreshFeishuProfile(code: string): Promise<Session>;
   logout(): Promise<void>;
   legacyDescriptor(url: string): Promise<Track>;
 }

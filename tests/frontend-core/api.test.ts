@@ -3,6 +3,13 @@ import { createMusicApi, descriptorIdentity } from '../../src/core/api';
 
 afterEach(() => vi.restoreAllMocks());
 describe('typed same-origin API', () => {
+  it('updates the existing Feishu profile using the dedicated same-session endpoint',async()=>{
+    const session={user:{id:'same-user',kind:'feishu',displayName:'模拟昵称'},expiresAt:'2030-01-01T00:00:00Z'}
+    const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify(session)))
+    const api=createMusicApi(fetcher)
+    expect(await api.refreshFeishuProfile('profile-only-code')).toEqual(session)
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith('/music-api/v1/auth/feishu/profile',expect.objectContaining({method:'POST',credentials:'same-origin',body:JSON.stringify({code:'profile-only-code'})}))
+  })
   it('reports a rejected Feishu code as an authorization failure without asking for a visitor recovery code', async () => {
     const api=createMusicApi(vi.fn().mockResolvedValue(new Response(JSON.stringify({error:'feishu_code_rejected'}),{status:401})));
     await expect(api.exchangeFeishu('temporary-code')).rejects.toThrow('飞书临时授权未通过');
