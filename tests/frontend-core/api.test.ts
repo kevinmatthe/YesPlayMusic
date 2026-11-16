@@ -70,12 +70,10 @@ describe('typed same-origin API', () => {
   it('does not fall back from explicit restrictions to a legacy signed source', async () => {
     const fetcher = vi.fn(async (input: string | URL | Request) => {
       const path = String(input);
-      if (path === 'https://legacy.test/info/11.json')
+      if (path.endsWith('/tracks/details'))
         return new Response(
           JSON.stringify({
-            Title: 'Legacy',
-            MusicURL: 'https://old-audio.test/clip',
-            Duration: 10000,
+            tracks:[{id:'netease:11',source:'netease',externalID:'11',title:'Legacy',artist:'',album:'',picture:'',durationMs:10000}],
           })
         );
       if (path.endsWith('/tracks/register'))
@@ -94,6 +92,7 @@ describe('typed same-origin API', () => {
       return new Response(
         JSON.stringify({
           trackID: 'netease:11',
+          delivery: 'direct',
           status: 'unavailable',
           reason: 'provider_access_denied',
         })
@@ -103,7 +102,7 @@ describe('typed same-origin API', () => {
     await api.legacyDescriptor('https://legacy.test/info/11.json');
     expect(await api.resolve('netease:11')).toMatchObject({
       status: 'unavailable',
-      reason: 'provider_access_denied',
+      diagnosticReason: 'provider_access_denied',
     });
   });
 });

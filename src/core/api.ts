@@ -38,24 +38,22 @@ export async function descriptorIdentity(raw: string): Promise<string> {
   url.searchParams.sort();
   return 'legacy:' + bytesToHex(sha256(new TextEncoder().encode(url.href)));
 }
-function safeURL(value: unknown): string {
-  if (typeof value !== 'string' || !value) return '';
+export function isExternalAudioURL(raw: unknown, trackID: string): boolean {
+  if (typeof raw !== 'string') return false;
   try {
-    const url = new URL(value);
-    return ['https:', 'http:'].includes(url.protocol) ? url.href : '';
-  } catch {
-    return '';
-  }
+    const u = new URL(raw);
+    if (u.protocol !== 'https:' || u.username || u.password || u.hash || u.port) return false;
+    const h = u.hostname.toLowerCase();
+    if (trackID.startsWith('netease:')) return h === 'music.126.net' || h.endsWith('.music.126.net') || h === 'music.163.com' || h.endsWith('.music.163.com');
+    if (trackID.startsWith('kuwo:')) return h === 'kuwo.cn' || h.endsWith('.kuwo.cn');
+    return false;
+  } catch { return false; }
 }
 export function createMusicApi(
   fetcher: typeof fetch = globalThis.fetch.bind(globalThis)
 ): MusicApi {
   let guest: Promise<Session> | undefined;
   const metadata = new Map<string, Track>();
-  const legacy = new Map<
-    string,
-    { url: string; lyricsURL: string; expiresAt: number }
-  >();
   async function request<T>(
     path: string,
     method = 'GET',
@@ -67,7 +65,7 @@ export function createMusicApi(
       response = await fetcher(BASE + path, {
         method,
         credentials: 'same-origin',
-        headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
+        headers: { 'X-Music-Delivery': 'direct', ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' }) },
         body: data === undefined ? undefined : JSON.stringify(data),
         keepalive,
       });
@@ -98,16 +96,28 @@ export function createMusicApi(
           : raw;
       throw new MusicApiError(response.status, message);
     }
+    // Historical rows and shared/exported libraries can retain old object URLs.
+    // Strip these at every JSON boundary, before any view creates an <img>.
+    const normalize = (value: unknown): void => {
+      if (!value || typeof value !== 'object') return;
+      if (Array.isArray(value)) { value.forEach(normalize); return; }
+      const record = value as Record<string, unknown>;
+      if (typeof record.id === 'string' && typeof record.source === 'string' && typeof record.picture === 'string' && /\/cloudmusic\/|\/music-api\/v1\/tracks\/.*\/artwork/.test(record.picture)) record.picture = '';
+      Object.values(record).forEach(normalize);
+    };
+    normalize(result);
     return result as T;
   }
   function remember(tracks: Track[]) {
-    tracks.forEach(t => metadata.set(t.id, t));
+    tracks.forEach(t => {
+      if (/\/cloudmusic\/|\/music-api\/v1\/tracks\/.*\/artwork/.test(t.picture)) t.picture = '';
+      metadata.set(t.id, t);
+    });
     return tracks;
   }
   function reset() {
     guest = undefined;
     metadata.clear();
-    legacy.clear();
   }
   const api: MusicApi = {
     async recommendations(limit=12){
@@ -170,52 +180,27 @@ export function createMusicApi(
       });
     },
     async resolve(id) {
-      const old = legacy.get(id);
-      const legacyResolution = (): Resolution =>
-        old && old.url && old.expiresAt > Date.now()
-          ? {
-              trackID: id,
-              status: 'available',
-              url: old.url,
-              expiresAt: new Date(old.expiresAt).toISOString(),
-              reason: 'legacy_descriptor_source',
-            }
-          : {
-              trackID: id,
-              status: 'unavailable',
-              reason: '旧卡片音源已过期，请重新打开卡片',
-            };
-      if (id.startsWith('legacy:')) return legacyResolution();
-      try {
-        return await request<Resolution>(
-          '/tracks/' + E(id) + '/resolve',
-          'POST',
-          {}
-        );
-      } catch (e) {
-        if (e instanceof MusicApiError && e.status === 503 && old)
-          return legacyResolution();
-        throw e;
-      }
-    },
-    async lyrics(id) {
-      const old = legacy.get(id);
-      if (old?.lyricsURL) {
-        const response = await fetcher(old.lyricsURL, { credentials: 'omit' });
-        if (!response.ok)
-          throw new MusicApiError(response.status, '旧卡片歌词地址已过期');
-        const value = (await response.json()) as {
-          lrc?: { lyric?: string };
-          tlyric?: { lyric?: string };
+      if (!/^(netease|kuwo):[1-9][0-9]*$/.test(id))
+        return {trackID:id,status:'unavailable',reason:'这首旧卡片歌曲没有可识别的音源，请搜索后播放。'};
+      const out = await request<Resolution>('/tracks/' + E(id) + '/resolve', 'POST', {delivery:'direct'});
+      const playable = out.status === 'available' || out.status === 'preview';
+      if (out.delivery !== 'direct' || out.trackID !== id || (playable && !isExternalAudioURL(out.url, id)))
+        return {trackID:id,status:'unavailable',reason:'当前服务未提供可用的直连音源，请稍后重试。',diagnosticReason:'direct_audio_required'};
+      if (out.status === 'unavailable') {
+        const reason = out.reason || '';
+        const hints:Record<string,string> = {
+          provider_access_denied:'这个音源暂不允许播放这首歌。',
+          provider_rate_limited:'音源请求较多，请稍后重试。',
+          account_budget_exhausted:'音源请求较多，请稍后重试。',
+          provider_preview_requires_official_player:'这首歌仅能在音源官方播放器中试听。',
+          audio_duration_mismatch:'音源的实际时长与歌曲不符，暂时无法播放。',
+          external_audio_url_rejected:'音源返回的地址无法直接播放，请稍后重试。',
         };
-        return {
-          trackID: id,
-          lrc: value.lrc?.lyric || '',
-          translatedLrc: value.tlyric?.lyric || '',
-        };
+        return {...out,url:undefined,expiresAt:undefined,diagnosticReason:reason,reason:hints[reason] || '外部音源暂不可用或受限，请稍后重试或选择其他歌曲。'};
       }
-      return request<Lyrics>('/tracks/' + E(id) + '/lyrics');
+      return out;
     },
+    lyrics: id => request<Lyrics>('/tracks/' + E(id) + '/lyrics'),
     async listPlaylists() {
       const result = await request<{ playlists: Playlist[] }>('/playlists');
       result.playlists.forEach(p => remember(p.tracks));
@@ -244,8 +229,11 @@ export function createMusicApi(
         like ? {} : undefined
       );
     },
-    history: async () =>
-      (await request<{ history: HistoryItem[] }>('/history')).history,
+    history: async () => {
+      const result = (await request<{ history: HistoryItem[] }>('/history')).history;
+      remember(result.map(item => item.track));
+      return result;
+    },
     clearHistory: async () => {
       await request('/history', 'DELETE');
     },
@@ -267,7 +255,11 @@ export function createMusicApi(
     revokeShare: async id => {
       await request('/shares/' + E(id), 'DELETE');
     },
-    shared: token => request<ExportData>('/shared/' + E(token)),
+    shared: async token => {
+      const result = await request<ExportData>('/shared/' + E(token));
+      remember([...result.likes, ...result.playlists.flatMap(p => p.tracks)]);
+      return result;
+    },
     copyShare: token =>
       request<{ imported: number }>(
         '/shared/' + E(token) + '/copy',
@@ -299,61 +291,16 @@ export function createMusicApi(
       reset();
     },
     async legacyDescriptor(raw) {
-      const url = new URL(raw);
-      if (!['https:', 'http:'].includes(url.protocol))
-        throw new MusicApiError(400, '旧卡片地址无效');
-      const response = await fetcher(url.href, { credentials: 'omit' });
-      if (!response.ok)
-        throw new MusicApiError(
-          response.status,
-          '旧卡片描述已过期，请重新打开卡片'
-        );
-      const data = (await response.json()) as Record<string, unknown>;
-      const numeric = decodeURIComponent(url.pathname).match(
-        /\/info\/(\d+)\.json$/
-      )?.[1];
-      const explicit =
-        typeof data.TrackID === 'string'
-          ? data.TrackID
-          : typeof data.Source === 'string' && data.ExternalID != null
-          ? `${data.Source}:${String(data.ExternalID)}`
-          : numeric
-          ? `netease:${numeric}`
-          : undefined;
-      const id = explicit || (await descriptorIdentity(url.href));
-      if (!/^[a-z][a-z0-9_-]{0,31}:[A-Za-z0-9._-]{1,180}$/.test(id))
-        throw new MusicApiError(400, '旧卡片歌曲标识无效');
-      const artists = Array.isArray(data.Artist)
-        ? data.Artist.map(a => String((a as { name?: unknown }).name || ''))
-            .filter(Boolean)
-            .join(', ')
-        : String(data.Artist || '');
-      let track: Track = {
-        id,
-        source: id.slice(0, id.indexOf(':')),
-        externalID: id.slice(id.indexOf(':') + 1),
-        title: String(data.Title || '旧卡片歌曲'),
-        artist: artists,
-        album: String(data.Album || ''),
-        picture: safeURL(data.PictureURL),
-        durationMs: Math.max(0, Number(data.Duration) || 0),
-      };
-      legacy.set(id, {
-        url: safeURL(data.MusicURL),
-        lyricsURL: safeURL(data.LyricsURL),
-        expiresAt: Date.now() + 300000,
-      });
-      // Generic descriptors remain browser-memory-only. Known catalogue identities are server-verified.
-      if (track.source === 'netease') {
-        try {
-          track = await request<Track>('/tracks/register', 'POST', { track });
-        } catch (error) {
-          if (!(error instanceof MusicApiError) || error.status !== 503)
-            throw error;
-        }
-      }
-      metadata.set(track.id, track);
-      return track;
+      let url: URL;
+      try { url = new URL(raw); } catch { throw new MusicApiError(400,'旧卡片歌曲地址无效，请搜索后播放。'); }
+      // Read only the identity encoded in the link. Never fetch MinIO's
+      // descriptor, its signed MusicURL, or its cached lyrics from this web app.
+      const match = decodeURIComponent(url.pathname).match(/\/(?:info|catalog)\/(?:(netease|kuwo)\/)?([1-9][0-9]*)\.json$/);
+      if (!['https:','http:'].includes(url.protocol) || !match)
+        throw new MusicApiError(400,'旧卡片没有可识别的歌曲，请搜索后播放。');
+      const id = `${match[1] || 'netease'}:${match[2]}`;
+      const tracks = await api.details([id]);
+      return tracks[0]!;
     },
   };
   return api;

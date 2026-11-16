@@ -21,6 +21,8 @@ export interface Queue {
   positionMs: number;
 }
 export interface Resolution {
+  delivery?: 'direct';
+  diagnosticReason?: string;
   trackID: string;
   status: 'available' | 'preview' | 'unavailable';
   url?: string;
@@ -31,7 +33,7 @@ export interface Resolution {
   matchMethod?: string;
   verification?: string;
 }
-export type PlaybackSourceInfo=Pick<Resolution,'mediaSource'|'originTrackID'|'matchMethod'|'verification'|'reason'>;
+export type PlaybackSourceInfo=Pick<Resolution,'mediaSource'|'originTrackID'|'matchMethod'|'verification'|'reason'> & { status?: Resolution['status']; delivery?: 'direct' };
 export interface Recommendation { track:Track; reason:string; basis:'likes'|'history'|'search'|'discovery' }
 export interface Recommendations { tracks:Recommendation[]; personalized:boolean }
 export interface SearchRecord { query:string; source:string; count:number; lastSearchedAt:string }
