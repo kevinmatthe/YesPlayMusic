@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { Playlist, Track } from '../core'
 import { musicApi } from '../core'
 import { editPlaylistBatch, reconcileSelection } from '../playlist-batch'
+import { markTracksLiked } from '../batch-like'
 import { useMusic } from '../stores/music'
 import { useOverlay } from '../stores/overlay'
 import TrackRows from './TrackRows.vue'
@@ -61,6 +62,24 @@ async function playSelected(){
  try{await music.player.playTracks(tracks);notice.value=`播放队列已切换为所选 ${tracks.length} 首；音源可用性见播放器。`;problem.value=false}
  finally{busy.value=false}
 }
+async function likeSelected(){
+ if(busy.value||!selected.value.length)return
+ const tracks=selected.value.slice(),confirmed=new Set<string>()
+ busy.value=true;notice.value=''
+ try{
+  const result=await markTracksLiked(musicApi,tracks,track=>{
+   confirmed.add(track.id)
+   if(!music.likedIDs.has(track.id))music.likes.push(track)
+  })
+  if(result.likes)music.likes=result.likes
+  report(`标记喜欢成功 ${result.succeeded.length} 首，已喜欢 ${result.skipped.length} 首，失败 ${result.failed.length} 首。${result.error||''}${result.failed.length?' 未成功的歌曲已保留选中，可重试。':''}`,result.failed)
+  problem.value=result.failed.length>0||result.unconfirmed
+ }catch(e){
+  const failed=tracks.filter(track=>!confirmed.has(track.id))
+  report(`已确认成功 ${confirmed.size} 首，其余 ${failed.length} 首结果未能确认。${e instanceof Error?e.message:'请刷新后重试。'}`,failed)
+  problem.value=true
+ }finally{busy.value=false}
+}
 function play(index:number){emit('play',visible.value,index)}
 function actualIndex(index:number){return props.playlist.tracks.findIndex(t=>t.id===visible.value[index]?.id)}
 </script>
@@ -78,6 +97,7 @@ function actualIndex(index:number){return props.playlist.tracks.findIndex(t=>t.i
    <div class="batch-actions">
     <button class="primary" :disabled="!selected.length||busy" @click="playSelected"><Icon name="play" :size="16"/>播放所选</button>
     <button class="subtle" :disabled="!selected.length||busy" @click="enqueue"><Icon name="queue" :size="16"/>加入播放队列</button>
+    <button class="subtle" :disabled="!selected.length||busy" @click="likeSelected"><Icon name="heart" :size="16"/>标记为喜欢</button>
     <button class="subtle" :disabled="!selected.length||busy" :aria-expanded="adding" @click="adding=!adding"><Icon name="plus" :size="16"/>加入其他歌单</button>
     <button class="subtle batch-remove" :disabled="!selected.length||busy" @click="mutate('remove')"><Icon name="trash" :size="16"/>从本歌单移除</button>
    </div>
