@@ -14,9 +14,9 @@ watch(avatar,()=>failed.value=false)
  </button>
 </template>
 <style scoped>
-.profile-badge{display:flex;align-items:center;gap:.6rem;min-width:2.75rem;min-height:2.75rem;max-width:13rem;padding:0;text-align:left;flex:0 1 auto;color:var(--ink,#28543f)}
-.profile-avatar{display:grid;place-items:center;flex:0 0 2.125rem;width:2.125rem;height:2.125rem;border-radius:50%;overflow:hidden;background:#e7eddd;border:1px solid #d6e0cb;color:#53704d;font-weight:600;font-size:.85rem}
-.profile-avatar img{display:block;width:100%;height:100%;object-fit:cover}.profile-avatar.is-loading{opacity:.6}
-.profile-copy{display:grid;gap:.12rem;min-width:0}.profile-copy small{font-size:.6rem;color:#8b9a7e;font-weight:400;line-height:1.2}.profile-copy strong{display:block;font-size:.75rem;font-weight:500;line-height:1.4;max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:760px){.profile-badge{gap:.4rem;max-width:8rem}.profile-copy strong{font-size:.68rem;max-width:5rem}.profile-copy small{font-size:.55rem}}
+.profile-badge{display:flex;align-items:center;gap:.65rem;min-width:2.75rem;min-height:2.75rem;max-width:14rem;padding:0;text-align:left;flex:0 1 auto;color:var(--ink)}
+.profile-avatar{display:grid;place-items:center;flex:0 0 2.5rem;width:2.5rem;height:2.5rem;border-radius:50%;overflow:hidden;background:var(--accent-soft);border:1px solid var(--line);color:var(--green);font-weight:600;font-size:1rem}
+.profile-avatar img{display:block;width:100%;height:100%;object-fit:cover}.profile-avatar.is-loading{opacity:.65}
+.profile-copy{display:grid;gap:.12rem;min-width:0}.profile-copy small{font-size:.875rem;color:var(--muted);font-weight:400;line-height:1.3}.profile-copy strong{display:block;font-size:.9375rem;font-weight:600;line-height:1.4;max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:760px){.profile-badge{gap:.5rem;max-width:8rem}.profile-copy strong{font-size:.875rem;max-width:5rem}.profile-copy small{font-size:.8125rem}}
 </style>

@@ -21,5 +21,5 @@ const seek=(event:Event)=>p.seek(Number((event.target as HTMLInputElement).value
 </template>
 
 <style scoped>
-.dock-track-name{gap:2px}.dock-track-name :deep(.media-source-label){font-size:.5rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.dock-track-name{gap:.2rem}.dock-track-name :deep(.media-source-label){font-size:.8125rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 </style>
