@@ -184,7 +184,7 @@ export function createMusicApi(
         return {trackID:id,status:'unavailable',reason:'这首旧卡片歌曲没有可识别的音源，请搜索后播放。'};
       const out = await request<Resolution>('/tracks/' + E(id) + '/resolve', 'POST', {delivery:'direct'});
       const playable = out.status === 'available' || out.status === 'preview';
-      if (out.delivery !== 'direct' || out.trackID !== id || (playable && !isExternalAudioURL(out.url, id)))
+      if (!['available','preview','unavailable'].includes(out.status) || out.delivery !== 'direct' || out.trackID !== id || (playable && !isExternalAudioURL(out.url, id)))
         return {trackID:id,status:'unavailable',reason:'当前服务未提供可用的直连音源，请稍后重试。',diagnosticReason:'direct_audio_required'};
       if (out.status === 'unavailable') {
         const reason = out.reason || '';

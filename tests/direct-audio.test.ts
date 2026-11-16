@@ -1,6 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createMusicApi } from '../src/core/api';
 describe('web direct audio contract',()=>{
+ it.each([
+  [undefined,'https://music.kmhomelab.cn:2443/cloudmusic/music/42.mp3'],
+  ['unknown','https://music.kmhomelab.cn:2443/cloudmusic/music/42.mp3'],
+  [undefined,'https://m801.music.126.net/42.mp3'],
+  ['unknown','https://m801.music.126.net/42.mp3'],
+ ])('rejects missing or unknown status %s even with direct delivery and URL %s',async(status,url)=>{
+  const fetcher=vi.fn(async()=>new Response(JSON.stringify({trackID:'netease:42',delivery:'direct',status,url,expiresAt:'2030-01-01T00:00:00Z'})));
+  const result=await createMusicApi(fetcher).resolve('netease:42');
+  expect(result.status).toBe('unavailable');
+  expect(result.reason).toContain('直连音源');
+  expect(result.url).toBeUndefined();
+  expect(result.expiresAt).toBeUndefined();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+ });
+ it.each(['available','preview','unavailable'] as const)('preserves the valid status %s and its URL policy',async status=>{
+  const url='https://m801.music.126.net/42.mp3';
+  const result=await createMusicApi(vi.fn(async()=>new Response(JSON.stringify({trackID:'netease:42',delivery:'direct',status,url,expiresAt:'2030-01-01T00:00:00Z',reason:'external_source_unavailable'})))).resolve('netease:42');
+  expect(result.status).toBe(status);
+  expect(result.delivery).toBe('direct');
+  expect(result.url).toBe(status==='unavailable'?undefined:url);
+  expect(result.expiresAt).toBe(status==='unavailable'?undefined:'2030-01-01T00:00:00Z');
+ });
  it('opts in on every resolution including retries and sends direct metadata headers',async()=>{
   const fetcher=vi.fn(async(_input:string|URL|Request,_init?:RequestInit)=>new Response(JSON.stringify({trackID:'netease:42',status:'available',delivery:'direct',url:'https://m801.music.126.net/song.mp3'})));
   const api=createMusicApi(fetcher);await api.resolve('netease:42');await api.resolve('netease:42');await api.lyrics('netease:42');
