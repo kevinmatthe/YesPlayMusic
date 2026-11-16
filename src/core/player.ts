@@ -5,6 +5,7 @@ import type { LyricLine, MusicApi, Queue, Resolution, Track, PlaybackSourceInfo 
 
 type RepeatMode = 'off' | 'all' | 'one';
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+type PlaybackResolutionInfo = PlaybackSourceInfo & Pick<Resolution, 'status'> & { delivery?: 'direct' };
 export interface PlayerState {
   tracks: Track[];
   currentIndex: number;
@@ -14,7 +15,7 @@ export interface PlayerState {
   loading: boolean;
   status: string;
   resolutionStatus: string;
-  sourceInfo: PlaybackSourceInfo | null;
+  sourceInfo: PlaybackResolutionInfo | null;
   lyricLines: LyricLine[];
   volume: number;
   repeat: RepeatMode;
@@ -35,6 +36,30 @@ export interface BatchEnqueueResult {
 }
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+function sourceMessage(reason: string): string {
+  const messages: Record<string, string> = {
+    provider_preview_requires_official_player: '这首歌需要在酷我官方播放器中试听或播放，当前网页无法提供音源。',
+    provider_access_denied: '当前来源不允许播放这首歌。',
+    permission_denied: '当前来源不允许播放这首歌。',
+    anonymous_source_unavailable_or_restricted: '当前音源不可用或受限，请选择其他歌曲或来源。',
+    insecure_audio_https_unavailable: '音源暂时无法通过 HTTPS 安全读取，请稍后重试。',
+    source_not_supported: '暂不支持这个歌曲来源。',
+    source_not_configured: '这个音源尚未配置。',
+    external_source_not_configured: '外部音源尚未配置，请稍后重试。',
+    external_source_unavailable: '外部音源暂不可用，请稍后重试或选择其他歌曲。',
+    source_resolution_timeout: '音源解析超时，请稍后重试。',
+    track_source_mismatch: '音源与歌曲来源不一致，已停止播放。',
+  };
+  const value = reason.trim();
+  if (messages[value]) return messages[value];
+  if (value.startsWith('source_mismatch:')) return '音源返回了其他来源的文件，已停止播放。';
+  const separator = value.lastIndexOf('：');
+  if (separator >= 0)
+    return value.slice(0, separator + 1) + sourceMessage(value.slice(separator + 1));
+  if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?:[: ].*)?$/i.test(value))
+    return '当前音源暂不可用，请稍后重试或选择其他歌曲。';
+  return reason;
+}
 const fallbackStorage = (): StorageLike => {
   const memory = new Map<string, string>();
   return {
@@ -79,6 +104,7 @@ export class NativePlayer {
   private recovering = false;
   private failed = false;
   private metadataReady = false;
+  private playbackNotice = '';
   private pendingPosition = 0;
   private playIntent = false;
   private dirty = 0;
@@ -137,8 +163,10 @@ export class NativePlayer {
         this.metadataReady &&
         Number.isFinite(this.audio.duration) &&
         this.audio.duration > 0
-      )
+      ) {
         this.state.durationMs = this.audio.duration * 1000;
+        this.updatePlaybackNotice();
+      }
     });
     this.on('error', () => {
       if (!this.failed) void this.recover(this.epoch, this.playIntent);
@@ -234,13 +262,14 @@ export class NativePlayer {
     this.recovering = false;
     this.failed = false;
     this.resolution = undefined;
+    this.playbackNotice = '';
     this.state.sourceInfo = null;
     this.pendingPosition = Math.max(0, positionMs);
     this.state.positionMs = this.pendingPosition;
     this.state.durationMs = track.durationMs;
     this.playIntent = autoplay;
     this.state.loading = true;
-    this.state.status = '正在解析音源…';
+    if (!this.state.queueConflict) this.state.status = '正在解析音源…';
     this.state.resolutionStatus = '';
     this.state.lyricLines = [];
     this.mediaMetadata(track);
@@ -291,9 +320,8 @@ export class NativePlayer {
     this.metadataReady = false;
     this.state.loading = true;
     this.state.resolutionStatus = resolution.status;
-    this.state.sourceInfo = {mediaSource:resolution.mediaSource,originTrackID:resolution.originTrackID,matchMethod:resolution.matchMethod,verification:resolution.verification,reason:resolution.reason};
-    this.state.status =
-      resolution.status === 'preview' ? '当前音源仅可试听' : '';
+    this.state.sourceInfo = {status:resolution.status,delivery:(resolution as Resolution & {delivery?:'direct'}).delivery,mediaSource:resolution.mediaSource,originTrackID:resolution.originTrackID,matchMethod:resolution.matchMethod,verification:resolution.verification,reason:resolution.reason};
+    this.updatePlaybackNotice();
     this.audio.src = resolution.url!;
     this.audio.load();
   }
@@ -324,11 +352,28 @@ export class NativePlayer {
     try {
       this.audio.currentTime = position / 1000;
     } catch {
-      this.state.status = '当前音源无法恢复播放位置';
+      if (!this.state.queueConflict) this.state.status = '当前音源无法恢复播放位置';
     }
+    this.updatePlaybackNotice();
     this.state.positionMs = position;
     this.mediaPosition();
     if (this.playIntent) void this.startAudio();
+  }
+  private updatePlaybackNotice() {
+    if (!this.resolution) return;
+    const expected = this.currentTrack?.durationMs || 0;
+    const actual = this.audio.duration * 1000;
+    // Container/encoder rounding is not evidence of a shortened recording.
+    const short = this.metadataReady && Number.isFinite(actual) && actual > 0 && expected > 0 && expected - actual > Math.max(2000, expected * .02);
+    const status = this.resolution.status === 'preview' || short ? 'preview' : this.resolution.status;
+    this.state.resolutionStatus = status;
+    if (this.state.sourceInfo) this.state.sourceInfo.status = status;
+    const notice = short
+      ? `${this.resolution.status === 'preview' ? '当前音源仅可试听' : '当前仅能试听'}。当前音频比歌曲标注时长短，可能不是完整版本`
+      : this.resolution.status === 'preview' ? '当前音源仅可试听' : '';
+    if (!this.state.queueConflict && ['', this.playbackNotice, '正在解析音源…', '音源已失效，正在重新解析…'].includes(this.state.status))
+      this.state.status = notice;
+    this.playbackNotice = notice;
   }
   private async startAudio() {
     const epoch = this.epoch;
@@ -337,21 +382,19 @@ export class NativePlayer {
       if (epoch !== this.epoch || this.disposed) return;
       if (!this.audio.paused) {
         this.state.playing = true;
-        if (
+        if (!this.state.queueConflict && (
           this.state.status.startsWith('浏览器未允许自动播放') ||
           this.state.status.startsWith('播放失败，请点击播放按钮重试')
-        )
-          this.state.status =
-            this.state.resolutionStatus === 'preview' ? '当前音源仅可试听' : '';
+        )) this.state.status = this.playbackNotice;
       }
       this.mediaPosition();
     } catch (error) {
       if (epoch !== this.epoch || this.disposed) return;
       this.state.playing = false;
-      this.state.status =
+      if (!this.state.queueConflict) this.state.status =
         (error as { name?: string })?.name === 'NotAllowedError'
           ? '浏览器未允许自动播放，请点击播放按钮继续。'
-          : '播放失败，请点击播放按钮重试：' + message(error);
+          : '播放失败，请点击播放按钮重试：' + sourceMessage(message(error));
     }
   }
   private async recover(epoch: number, autoplay: boolean) {
@@ -362,7 +405,7 @@ export class NativePlayer {
       this.audio.pause();
       this.state.playing = false;
       this.state.loading = false;
-      this.state.status = '音源加载失败，已停止重试。可以手动重试当前歌曲。';
+      if (!this.state.queueConflict) this.state.status = '音源加载失败，已停止重试。可以手动重试当前歌曲。';
       return;
     }
     const track = this.currentTrack;
@@ -376,7 +419,7 @@ export class NativePlayer {
     this.metadataReady = false;
     this.state.positionMs = position;
     this.state.loading = true;
-    this.state.status = '音源已失效，正在重新解析…';
+    if (!this.state.queueConflict) this.state.status = '音源已失效，正在重新解析…';
     try {
       const next = await this.api.resolve(track.id);
       if (epoch !== this.epoch || this.disposed) return;
@@ -403,15 +446,7 @@ export class NativePlayer {
     this.state.loading = false;
     this.state.playing = false;
     this.state.resolutionStatus = 'unavailable';
-    const messages: Record<string, string> = {
-      provider_preview_requires_official_player: '这首歌需要在酷我官方播放器中试听或播放，当前网页无法提供音源。',
-      provider_access_denied: '当前来源不允许播放这首歌。',
-      anonymous_source_unavailable_or_restricted: '当前音源不可用或受限，请选择其他歌曲或来源。',
-      insecure_audio_https_unavailable: '音源暂时无法通过 HTTPS 安全读取，请稍后重试。',
-      source_not_supported: '暂不支持这个歌曲来源。',
-      source_not_configured: '这个音源尚未配置。',
-    };
-    this.state.status = messages[reason] || (reason.startsWith('source_mismatch:') ? '音源返回了其他来源的文件，已停止播放。' : reason);
+    if (!this.state.queueConflict) this.state.status = sourceMessage(reason);
     this.playIntent = false;
     this.resetAudio(false);
   }
@@ -456,7 +491,7 @@ export class NativePlayer {
       if (this.state.repeat === 'all') next = 0;
       else {
         this.pause();
-        if (this.state.resolutionStatus === 'preview')
+        if (this.state.resolutionStatus === 'preview' && !this.state.queueConflict)
           this.state.status = '试听片段已结束';
         return;
       }
@@ -603,7 +638,7 @@ export class NativePlayer {
       this.state.currentIndex = 0;
       void this.select(0, false, 0);
     } else if (this.state.status.startsWith('队列保存失败')) {
-      this.state.status = this.state.resolutionStatus === 'preview' ? '当前音源仅可试听' : '';
+      this.state.status = this.playbackNotice;
     }
     return { accepted, failed, ...(capacityError ? { error: capacityError } : {}) };
   }

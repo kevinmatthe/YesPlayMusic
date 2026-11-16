@@ -124,6 +124,154 @@ const flush = async () => {
 };
 
 describe('native single player', () => {
+  it('passes runtime resolution status and direct delivery to the source display', async () => {
+    const { player } = setup({ resolve: vi.fn(async id => ({ ...available(id), delivery: 'direct' as const, status: id === A.id ? 'available' as const : 'preview' as const })) });
+    await player.initialize();
+    await player.playTracks([A, B]);
+    expect(player.state.sourceInfo).toMatchObject({ status: 'available', delivery: 'direct' });
+    await player.playAt(1);
+    expect(player.state.sourceInfo).toMatchObject({ status: 'preview', delivery: 'direct' });
+    expect(player.state.status).toContain('当前音源仅可试听');
+  });
+  it('warns from a substantially shorter measured duration without claiming a complete version', async () => {
+    const { player, audio } = setup();
+    await player.initialize();
+    await player.playTracks([A]);
+    audio.duration = 30;
+    audio.ready();
+    await flush();
+
+    expect(player.state.durationMs).toBe(30000);
+    expect(player.state.resolutionStatus).toBe('preview');
+    expect(player.state.sourceInfo).toMatchObject({ status: 'preview' });
+    expect(player.state.status).toContain('仅能试听');
+    expect(player.state.status).toContain('当前音频比歌曲标注时长短，可能不是完整版本');
+    expect(player.state.status).not.toContain('完整版已验证');
+    expect(player.state.playing).toBe(true);
+  });
+  it('rechecks later duration changes and removes only its own warning when duration becomes normal', async () => {
+    const { player, audio } = setup();
+    await player.initialize();
+    await player.playTracks([A]);
+    audio.duration = Infinity;
+    audio.ready();
+    await flush();
+    expect(player.state.resolutionStatus).toBe('available');
+    expect(player.state.status).toBe('');
+    audio.duration = 30;
+    audio.dispatchEvent(new Event('durationchange'));
+    expect(player.state.status).toContain('可能不是完整版本');
+    expect(player.state.sourceInfo).toMatchObject({ status: 'preview' });
+    audio.duration = 119.5;
+    audio.dispatchEvent(new Event('durationchange'));
+    expect(player.state.durationMs).toBe(119500);
+    expect(player.state.resolutionStatus).toBe('available');
+    expect(player.state.sourceInfo).toMatchObject({ status: 'available' });
+    expect(player.state.status).toBe('');
+  });
+  it('tolerates small duration differences and clears a prior short-audio warning on track change', async () => {
+    const { player, audio } = setup();
+    await player.initialize();
+    await player.playTracks([A, B]);
+    audio.duration = 30;
+    audio.ready();
+    await flush();
+    expect(player.state.status).toContain('可能不是完整版本');
+    await player.playAt(1);
+    expect(player.state.status).toBe('');
+    audio.duration = 119.8;
+    audio.ready();
+    await flush();
+    expect(player.state.resolutionStatus).toBe('available');
+    expect(player.state.status).toBe('');
+  });
+  it('keeps the provider preview status even when measured audio matches the catalogue duration', async () => {
+    const { player, audio } = setup({ resolve: vi.fn(async id => ({ ...available(id), status: 'preview' as const })) });
+    await player.initialize();
+    await player.playTracks([A]);
+    audio.ready();
+    await flush();
+    audio.dispatchEvent(new Event('durationchange'));
+    expect(player.state.status).toContain('当前音源仅可试听');
+    expect(player.state.resolutionStatus).toBe('preview');
+    expect(player.state.sourceInfo).toMatchObject({ status: 'preview' });
+  });
+  it('keeps queue-conflict instructions above duration warnings during loading and track changes', async () => {
+    const pending = deferred<ReturnType<typeof available>>();
+    const { player, audio } = setup({ resolve: vi.fn(id => id === A.id ? pending.promise : Promise.resolve(available(id))), saveQueue: vi.fn().mockRejectedValue(Object.assign(new Error('revision conflict'), { status: 409 })) });
+    await player.initialize();
+    const selecting = player.playTracks([A, B]);
+    await player.saveQueue();
+    const instructions = player.state.status;
+    expect(instructions).toContain('服务器队列');
+    pending.resolve(available(A.id));
+    await selecting;
+    audio.duration = 30;
+    audio.ready();
+    await flush();
+    expect(player.state.status).toBe(instructions);
+    audio.dispatchEvent(new Event('durationchange'));
+    expect(player.state.status).toBe(instructions);
+    await player.playAt(1);
+    expect(player.state.status).toBe(instructions);
+  });
+  it('keeps autoplay rejection visible until explicit retry, then restores the duration warning', async () => {
+    const { player, audio } = setup();
+    audio.play = vi.fn().mockRejectedValueOnce(Object.assign(new Error('blocked'), { name: 'NotAllowedError' })).mockImplementation(async () => { audio.paused = false; audio.dispatchEvent(new Event('play')); });
+    await player.initialize();
+    await player.playTracks([A]);
+    audio.duration = 30;
+    audio.ready();
+    await flush();
+    const blocked = player.state.status;
+    expect(blocked).toContain('浏览器未允许自动播放');
+    audio.dispatchEvent(new Event('durationchange'));
+    expect(player.state.status).toBe(blocked);
+    await player.play();
+    expect(player.state.status).toContain('可能不是完整版本');
+    expect(player.state.playing).toBe(true);
+  });
+  it.each([
+    ['external_source_unavailable', '音源'],
+    ['external_source_not_configured', '配置'],
+    ['source_resolution_timeout', '超时'],
+    ['track_source_mismatch', '来源'],
+    ['future_external_failure', '音源'],
+  ])('explains the unavailable source code %s in Chinese', async (reason, fragment) => {
+    const { player, audio } = setup({ resolve: vi.fn(async id => ({ trackID: id, status: 'unavailable' as const, reason })) });
+    await player.initialize();
+    await player.playTracks([A]);
+    expect(player.state.status).toContain(fragment);
+    expect(player.state.status).not.toContain(reason);
+    expect(player.currentTrack?.id).toBe(A.id);
+    expect(audio.src).toBe('');
+  });
+  it('translates a source code inside the initial resolution error prefix', async () => {
+    const { player } = setup({ resolve: vi.fn().mockRejectedValue(new Error('external_source_unavailable')) });
+    await player.initialize();
+    await player.playTracks([A]);
+    expect(player.state.status).toContain('音源解析失败：');
+    expect(player.state.status).not.toContain('external_source_unavailable');
+  });
+  it('translates recovery error codes while retaining the same track, progress and single automatic attempt', async () => {
+    const resolve = vi.fn<MusicApi['resolve']>().mockResolvedValueOnce(available(A.id)).mockRejectedValue(new Error('source_resolution_timeout'));
+    const { player, audio } = setup({ resolve });
+    await player.initialize();
+    await player.playTracks([A, B]);
+    audio.ready();
+    await flush();
+    audio.tick(19);
+    audio.fail();
+    await flush();
+    expect(player.state.status).toContain('恢复音源失败，已停止重试：');
+    expect(player.state.status).toContain('超时');
+    expect(player.state.status).not.toContain('source_resolution_timeout');
+    expect(player.currentTrack?.id).toBe(A.id);
+    expect(player.state.positionMs).toBe(19000);
+    audio.fail();
+    await flush();
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
   it('does not let an unchanged retiring page advance the queue revision after the replacement page reads it', async () => {
     const releaseKeepalive = deferred<void>();
     let stored: Queue = { ...empty, trackIDs: [] };
@@ -452,7 +600,8 @@ describe('native single player', () => {
     await player.playAt(1);
     expect(player.currentTrack?.id).toBe(B.id);
     expect(player.state.playing).toBe(false);
-    expect(player.state.status).toContain('permission_denied');
+    expect(player.state.status).toContain('不允许播放');
+    expect(player.state.status).not.toContain('permission_denied');
     expect(audio.src).toBe('');
   });
   it('explains an unavailable official-player-only recording without requesting media or switching tracks', async () => {
