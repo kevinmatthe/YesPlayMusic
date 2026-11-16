@@ -71,6 +71,9 @@ async function likeSelected(){
    confirmed.add(track.id)
    if(!music.likedIDs.has(track.id))music.likes.push(track)
   })
+  for(const track of result.skipped){
+   if(!music.likedIDs.has(track.id))music.likes.push(track)
+  }
   if(result.likes)music.likes=result.likes
   report(`标记喜欢成功 ${result.succeeded.length} 首，已喜欢 ${result.skipped.length} 首，失败 ${result.failed.length} 首。${result.error||''}${result.failed.length?' 未成功的歌曲已保留选中，可重试。':''}`,result.failed)
   problem.value=result.failed.length>0||result.unconfirmed
