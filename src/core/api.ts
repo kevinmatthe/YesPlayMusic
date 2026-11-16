@@ -86,6 +86,10 @@ export function createMusicApi(
           ? '当前访问地址与音乐服务入口不一致，请从正式音乐网页重新打开。'
           : raw === 'session_required'
           ? '当前浏览器尚未建立音乐会话，请重新载入页面自动创建访客空间。'
+          : raw === 'feishu_code_rejected'
+          ? '飞书临时授权未通过，请在飞书内重新授权。'
+          : raw === 'feishu_not_configured'
+          ? '飞书登录尚未启用，访客空间仍可使用。'
           : response.status === 401
           ? '会话已过期，请使用恢复码重新打开音乐空间。'
           : raw;

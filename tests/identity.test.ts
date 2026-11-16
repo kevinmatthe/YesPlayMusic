@@ -48,15 +48,15 @@ describe('Feishu callback protocol',()=>{
   it('uses requestAccess and only falls back on unsupported-client errno103',async()=>{
     const legacy=vi.fn(({success})=>success({code:'old-client-code'}))
     const tt={requestAccess:vi.fn(({fail})=>fail({errno:103})),requestAuthCode:legacy}
-    expect(await requestFeishuCode('cli_one',{tt},100)).toBe('old-client-code')
+    expect(await requestFeishuCode('cli_one',{tt,h5sdk:{ready:cb=>cb()}},100)).toBe('old-client-code')
     expect(legacy.mock.calls[0]?.[0].appId).toBe('cli_one')
   })
   it('never turns authorization refusal into a fallback request',async()=>{
     const legacy=vi.fn(),tt={requestAccess:vi.fn(({fail})=>fail({errno:20001})),requestAuthCode:legacy}
-    await expect(requestFeishuCode('cli_one',{tt},100)).rejects.toThrow('授权')
+    await expect(requestFeishuCode('cli_one',{tt,h5sdk:{ready:cb=>cb()}},100)).rejects.toThrow('授权')
     expect(legacy).not.toHaveBeenCalled()
   })
   it('bounds a host that never calls its callbacks',async()=>{
-    await expect(requestFeishuCode('cli_one',{tt:{requestAccess:vi.fn()}},10)).rejects.toThrow('超时')
+    await expect(requestFeishuCode('cli_one',{tt:{requestAccess:vi.fn()},h5sdk:{ready:cb=>cb()}},10)).rejects.toThrow('超时')
   })
 })

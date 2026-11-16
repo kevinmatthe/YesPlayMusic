@@ -2,7 +2,7 @@ import { computed, markRaw, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { createPlayer, musicApi } from '../core'
 import type { Playlist, Track, HistoryItem, Share, ExportData } from '../core'
-import { initializeIdentity, browserIdentityHost } from '../identity'
+import { initializeIdentity, browserIdentityHost, IdentityNavigation } from '../identity'
 
 export const useMusic = defineStore('music', () => {
   const player=markRaw(createPlayer())
@@ -13,11 +13,36 @@ export const useMusic = defineStore('music', () => {
   const likedIDs=computed(()=>new Set(likes.value.map(t=>t.id)))
   let toastTimer:ReturnType<typeof setTimeout>|undefined
   function notify(message:string){toast.value=message;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.value='',3200)}
-  async function run<T>(fn:()=>Promise<T>):Promise<T|undefined>{error.value='';try{return await fn()}catch(e){error.value=e instanceof Error?e.message:String(e);return undefined}}
+  async function run<T>(fn:()=>Promise<T>):Promise<T|undefined>{error.value='';try{return await fn()}catch(e){if(e instanceof IdentityNavigation)throw e;error.value=e instanceof Error?e.message:String(e);return undefined}}
   async function refresh(){await run(async()=>{const[p,l,h,m]=await Promise.all([musicApi.listPlaylists(),musicApi.likes(),musicApi.history(),musicApi.me()]);playlists.value=p;likes.value=l;history.value=h;userKind.value=m.user.kind})}
-  async function initialize(){await run(async()=>{const host=browserIdentityHost();inFeishu.value=host.isFeishu;const result=await initializeIdentity(musicApi,host);feishuEnabled.value=result.options.feishu.enabled;feishuAppID.value=result.options.feishu.appID;identityMessage.value=result.message;userKind.value=result.session.user.kind;await player.initialize();await refresh();const notice=sessionStorage.getItem('betago:auth-notice');if(notice){sessionStorage.removeItem('betago:auth-notice');error.value=notice}});ready.value=true}
+  async function initialize(){
+    ready.value=false;error.value=''
+    try{
+      const host=browserIdentityHost();inFeishu.value=host.isFeishu
+      const result=await initializeIdentity(musicApi,host)
+      feishuEnabled.value=result.options.feishu.enabled;feishuAppID.value=result.options.feishu.appID
+      identityMessage.value=result.message;userKind.value=result.session.user.kind
+      await player.initialize();await refresh()
+      const notice=sessionStorage.getItem('betago:auth-notice')
+      if(notice){sessionStorage.removeItem('betago:auth-notice');error.value=notice}
+      ready.value=true;return true
+    }catch(e){
+      if(e instanceof IdentityNavigation)return false
+      error.value=e instanceof Error?e.message:String(e);ready.value=true;return false
+    }
+  }
   async function changeSession(action:()=>Promise<unknown>){player.pause();await player.saveQueue();player.dispose();try{await action()}catch(e){sessionStorage.setItem('betago:auth-notice',e instanceof Error?e.message:String(e))}finally{location.assign('/library')}}
-  async function connectFeishu(){if(!feishuEnabled.value||!inFeishu.value)return;await run(async()=>{const code=await browserIdentityHost().requestCode(feishuAppID.value);await changeSession(()=>musicApi.exchangeFeishu(code))})}
+  async function connectFeishu(){
+    if(!feishuEnabled.value||!inFeishu.value)return
+    try{await run(async()=>{
+      const current=await musicApi.me()
+      if(current.user.kind!=='guest'){await refresh();return}
+      player.pause();await player.saveQueue()
+      const navigation=browserIdentityHost().navigation
+      if(!navigation)throw new Error('无法打开身份验证页面，请重新载入后重试。')
+      navigation.beginConnect(feishuAppID.value,current.user.id)
+    })}catch(e){if(!(e instanceof IdentityNavigation))throw e}
+  }
   async function create(name:string,trackIDs:string[]=[]){return run(async()=>{const p=await musicApi.createPlaylist(name,trackIDs);await refresh();selectedID.value=p.id;notify('歌单已创建');return p})}
   async function update(p:Playlist,trackIDs:string[],name=p.name){return run(async()=>{const next=await musicApi.updatePlaylist(p,trackIDs,name);const index=playlists.value.findIndex(v=>v.id===p.id);if(index>=0)playlists.value[index]=next;return next})}
   async function remove(p:Playlist){return run(async()=>{await musicApi.deletePlaylist(p);if(selectedID.value===p.id)selectedID.value='';await refresh();notify('歌单已删除')})}

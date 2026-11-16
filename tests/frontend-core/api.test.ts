@@ -3,6 +3,10 @@ import { createMusicApi, descriptorIdentity } from '../../src/core/api';
 
 afterEach(() => vi.restoreAllMocks());
 describe('typed same-origin API', () => {
+  it('reports a rejected Feishu code as an authorization failure without asking for a visitor recovery code', async () => {
+    const api=createMusicApi(vi.fn().mockResolvedValue(new Response(JSON.stringify({error:'feishu_code_rejected'}),{status:401})));
+    await expect(api.exchangeFeishu('temporary-code')).rejects.toThrow('飞书临时授权未通过');
+  });
   it('distinguishes an incorrect entry origin from a missing first-visit session', async () => {
     const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify({error:'origin_denied'}),{status:403}));
     const api=createMusicApi(fetcher);
