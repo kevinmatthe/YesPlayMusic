@@ -1,13 +1,21 @@
-import { computed, markRaw, ref, watch } from 'vue'
+import { computed, markRaw, onScopeDispose, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { createPlayer, musicApi } from '../core'
 import type { Playlist, Track, HistoryItem, Share, ExportData, Session } from '../core'
 import { initializeIdentity, browserIdentityHost, IdentityNavigation } from '../identity'
 import { createInterestFeed } from '../interest-feed'
 import { loadDiscovery } from '../discovery'
+import { deviceAudioCache } from '../core/api'
 
 export const useMusic = defineStore('music', () => {
   const player=markRaw(createPlayer())
+  const unbindCache=player.audio?deviceAudioCache.bindAudio(player.audio):()=>{}
+  let unsubscribeCache=()=>{}
+  const originalDispose=player.dispose.bind(player)
+  let disposed=false
+  const disposePlayer=()=>{if(disposed)return;disposed=true;unbindCache();unsubscribeCache();clearTimeout(toastTimer);originalDispose()}
+  if(player.audio)player.dispose=disposePlayer
+  onScopeDispose(disposePlayer)
   const playlists=ref<Playlist[]>([]), likes=ref<Track[]>([]), history=ref<HistoryItem[]>([]), shares=ref<Share[]>([])
   const ready=ref(false), busy=ref(false), error=ref(''), toast=ref(''), userKind=ref('guest')
   const user=ref<Session['user']>()
@@ -18,6 +26,8 @@ export const useMusic = defineStore('music', () => {
   const likedIDs=computed(()=>new Set(likes.value.map(t=>t.id)))
   let toastTimer:ReturnType<typeof setTimeout>|undefined
   function notify(message:string){toast.value=message;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.value='',3200)}
+  let cacheState=''
+  unsubscribeCache=deviceAudioCache.subscribe(next=>{if(next.state==='downloading'&&cacheState!=='downloading')notify('首次准备需要完整下载，稍后即可播放。');cacheState=next.state})
   async function run<T>(fn:()=>Promise<T>):Promise<T|undefined>{error.value='';try{return await fn()}catch(e){if(e instanceof IdentityNavigation)throw e;error.value=e instanceof Error?e.message:String(e);return undefined}}
   async function refresh(){await run(async()=>{const[p,l,h,m]=await Promise.all([musicApi.listPlaylists(),musicApi.likes(),musicApi.history(),musicApi.me()]);playlists.value=p;likes.value=l;history.value=h;userKind.value=m.user.kind;user.value=m.user})}
   async function initialize(){
