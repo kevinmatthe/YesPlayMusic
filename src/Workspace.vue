@@ -33,7 +33,7 @@ async function loadPage(){
  if(page.value==='library'){
   if(route.query.recommend==='1')music.selectedID=''
   await interests.loadRecommendations()
-  if(route.query.recommend==='1'){await nextTick();document.getElementById('recommendations')?.scrollIntoView({block:'start'})}
+  if(route.query.recommend==='1'){await nextTick();if(!document.hidden)document.getElementById('recommendations')?.scrollIntoView({block:'start'})}
  }
  if(page.value==='search'){
   void interests.loadSearches()
