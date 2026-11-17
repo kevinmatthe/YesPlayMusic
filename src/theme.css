@@ -137,7 +137,7 @@
 html {
   background: var(--paper);
   color: var(--ink);
-  scroll-padding-bottom: calc(var(--player-height) + var(--safe-bottom) + 1rem);
+  scroll-padding-bottom: calc(var(--bottom-space) + 1rem);
   scrollbar-color: var(--control-border) var(--paper);
 }
 

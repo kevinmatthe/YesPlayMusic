@@ -91,9 +91,10 @@ function actualIndex(index:number){return props.playlist.tracks.findIndex(t=>t.i
  <section ref="root" class="playlist-tracks" aria-label="歌单歌曲" @keydown="keyboard">
   <div class="playlist-list-tools">
    <label class="playlist-filter"><Icon name="search" :size="17"/><input v-model="filter" aria-label="筛选歌单歌曲" placeholder="筛选这张歌单" :disabled="busy"/></label>
-   <button v-if="!selecting" ref="entry" class="subtle" :disabled="!playlist.tracks.length||busy" @click="start">多选</button>
+   <button v-if="!selecting" ref="entry" class="subtle" :disabled="!playlist.tracks.length||busy" @click="start">多选 / 全选</button>
    <button v-else class="subtle" :disabled="busy" @click="done">完成多选</button>
   </div>
+  <p v-if="!selecting&&playlist.tracks.length" class="batch-entry-hint muted">多选后可全选歌曲，一次标记喜欢或加入其他歌单。</p>
   <Transition name="motion-toolbar"><div v-if="selecting" class="batch-panel batch-toolbar" :aria-busy="busy">
    <div class="batch-summary"><label class="batch-all"><input type="checkbox" :checked="all" :indeterminate="ids.length>0&&!all" :disabled="!visible.length||busy" :aria-label="`全选${scope}`" @change="toggleAll"/><span>{{all?'取消全选':'全选'}}</span></label><strong role="status">已选 {{selected.length}} 首</strong></div>
    <p class="batch-scope">全选范围：{{scope}}。{{filter.trim()?'更改筛选会清空选择。':'已完整加载，无分页。'}}<span class="batch-keyboard"> Tab / 空格勾选，Ctrl / ⌘ A 全选，Esc 退出。</span></p>
@@ -114,7 +115,7 @@ function actualIndex(index:number){return props.playlist.tracks.findIndex(t=>t.i
 </template>
 
 <style scoped>
-.playlist-tracks{min-width:0}.playlist-list-tools{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin:1rem 0}
+.playlist-tracks{min-width:0}.batch-entry-hint{margin:.25rem 0 1rem;font-size:.875rem;line-height:1.6}.playlist-list-tools{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin:1rem 0}
 .playlist-filter{display:flex;align-items:center;gap:.5rem;flex:1;min-width:0;border:1px solid var(--line);border-radius:.625rem;padding:0 .75rem;color:var(--muted);background:var(--input-bg)}
 .playlist-filter input{width:100%;min-width:0;min-height:2.75rem;border:0;background:transparent;font:inherit;font-size:1rem;color:var(--ink);outline-offset:3px}.playlist-list-tools>button{min-height:2.75rem}
 .batch-panel{padding:1rem;border:1px solid var(--line);border-radius:.875rem;background:var(--surface-subtle)}
