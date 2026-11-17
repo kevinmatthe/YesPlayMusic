@@ -28,7 +28,7 @@ export const useMusic = defineStore('music', () => {
   let toastTimer:ReturnType<typeof setTimeout>|undefined
   function notify(message:string){toast.value=message;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.value='',3200)}
   let cacheState=''
-  unsubscribeCache=deviceAudioCache.subscribe(next=>{if(next.state==='downloading'&&cacheState!=='downloading')notify('正在后台保存本机缓存，播放不受影响。');cacheState=next.state})
+  unsubscribeCache=deviceAudioCache.subscribe(next=>{if(next.state==='downloading'&&cacheState!=='downloading')notify('正在后台保存本机缓存，播放不受影响。');else if(cacheState==='downloading'&&next.state!=='downloading')notify(next.message);cacheState=next.state})
   async function run<T>(fn:()=>Promise<T>):Promise<T|undefined>{const identity=identityEpoch;error.value='';try{return await fn()}catch(e){if(e instanceof IdentityNavigation)throw e;if(!disposed&&identity===identityEpoch)error.value=e instanceof Error?e.message:String(e);return undefined}}
   async function refresh(){await run(async()=>{const likesBefore=likes.value,likedBefore=likes.value.map(t=>t.id).join('\n'),likeVersion=likeState.revision,identity=identityEpoch;const[p,l,h,m]=await Promise.all([musicApi.listPlaylists(),musicApi.likes(),musicApi.history(),musicApi.me()]);if(disposed||identity!==identityEpoch)return;playlists.value=p;if(likeVersion===likeState.revision&&likesBefore===likes.value&&likedBefore===likes.value.map(t=>t.id).join('\n'))likes.value=l;history.value=h;userKind.value=m.user.kind;user.value=m.user})}
   async function initialize(){

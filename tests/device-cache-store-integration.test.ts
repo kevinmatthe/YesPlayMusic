@@ -18,4 +18,8 @@ describe('global player cache event integration',()=>{
   fixtures.listener?.({state:'downloading',message:'正在后台校验并保存本机缓存，当前流式播放不受影响。'})
   expect(music.toast).toContain('后台');expect(music.toast).toContain('播放不受影响');expect(music.toast).not.toContain('首次准备');music.player.dispose();expect(fixtures.unsubscribe).toHaveBeenCalledTimes(1)
  })
+ it.each(['bypassed','cached'])('replaces a pending background notice immediately on %s',state=>{
+  const music=useMusic();fixtures.listener?.({state:'downloading',message:'正在后台保存'});fixtures.listener?.({state,message:state==='cached'?'完整音频已保存':'后台缓存未保存；流式播放不受影响。'});expect(music.toast).toBe(state==='cached'?'完整音频已保存':'后台缓存未保存；流式播放不受影响。');music.player.dispose()
+ })
+
 })
