@@ -10,6 +10,22 @@ function factory():Factory {
  expect(make,'live cache factory must wrap the unchanged raw direct API').toBeTypeOf('function')
  return make!
 }
+const settle=()=>new Promise<void>(resolve=>setTimeout(resolve,0))
+class PlaybackAudio extends EventTarget {
+ src='';currentTime=0;duration:number;paused=true;readyState=4;bufferedEnd=0;playedEnd=0
+ constructor(durationMs:number){super();this.duration=durationMs/1000}
+ get currentSrc(){return this.src}
+ get buffered(){const end=this.bufferedEnd;return {length:end>0?1:0,start:()=>0,end:()=>end} as TimeRanges}
+ get played(){const end=this.playedEnd;return {length:end>0?1:0,start:()=>0,end:()=>end} as TimeRanges}
+ prepare(url:string){this.src=url;this.currentTime=0;this.paused=true;this.bufferedEnd=0;this.playedEnd=0;this.dispatchEvent(new Event('loadstart'))}
+ playIntent(){this.paused=false;this.bufferedEnd=this.duration;this.dispatchEvent(new Event('play'))}
+ playing(){this.paused=false;this.currentTime=.25;this.playedEnd=.25;this.bufferedEnd=this.duration/2;this.dispatchEvent(new Event('playing'))}
+ completeBuffer(){this.bufferedEnd=this.duration;this.dispatchEvent(new Event('progress'))}
+ pause(){this.paused=true;this.dispatchEvent(new Event('pause'))}
+ load(){}
+ getAttribute(name:string){return name==='src'?this.src||null:null}
+ removeAttribute(name:string){if(name==='src')this.src=''}
+}
 function fixture(){
  const rows=new Map<string,DeviceAudioRecord>(),settings=new Map<string,boolean>()
  const store:DeviceAudioStore={get:async key=>rows.get(key),list:async()=>[...rows.values()].map(({blob:_,source:__,digest:___,...rest})=>rest),save:async row=>{rows.set(row.key,row)},touch:async(key,time)=>{const row=rows.get(key);if(row)row.lastUsedAt=time},remove:async key=>{rows.delete(key)},clear:async namespace=>{for(const[key,row]of rows)if(row.namespace===namespace)rows.delete(key)},enabled:async namespace=>settings.get(namespace)??true,setEnabled:async(namespace,value)=>{settings.set(namespace,value)}}
@@ -28,7 +44,7 @@ function fixture(){
   throw new Error('Unexpected test API path '+path)
  })
  const options:DeviceCacheOptions={store,origin:'https://music.kmhomelab.cn:2443',createObjectURL:()=> 'blob:integration-'+(++urlCount),revokeObjectURL:()=>{}}
- return {rows,store,fetcher,options,setReply:(value:Partial<Resolution>)=>reply=value,setOwner:(value:string)=>userID=value,requests:(fragment:string)=>fetcher.mock.calls.filter(call=>String(call[0]).includes(fragment))}
+ return {rows,store,fetcher,options,durationMs,setReply:(value:Partial<Resolution>)=>reply=value,setOwner:(value:string)=>userID=value,requests:(fragment:string)=>fetcher.mock.calls.filter(call=>String(call[0]).includes(fragment))}
 }
 
 describe('integrated device cache with the real direct API adapter',()=>{
@@ -36,31 +52,44 @@ describe('integrated device cache with the real direct API adapter',()=>{
   const live=(apiModule as unknown as {deviceAudioCache?:DeviceAudioCache}).deviceAudioCache
   expect(live,'the shipped singleton must use the cache').toBeDefined();expect(apiModule.musicApi).toBe(live!.api)
  })
- it.each(['netease:1483378295','kuwo:629335603'])('fills %s with one external GET and replays/reopens with zero resolve or media requests',async id=>{
-  const h=fixture(),cache=factory()(h.fetcher as typeof fetch,h.options);const first=await cache.api.resolve(id)
-  expect(first.url).toMatch(/^blob:/);expect(first.reason).toContain('device_audio_cache');expect(first.originTrackID).toBe(id)
-  expect(h.requests('/resolve')).toHaveLength(1);expect(h.requests('https://')).toHaveLength(1)
+ it.each(['netease:1483378295','kuwo:629335603'])('streams %s immediately and caches only after actual playback and full buffering for a later replay',async id=>{
+  const h=fixture(),cache=factory()(h.fetcher as typeof fetch,h.options),audio=new PlaybackAudio(h.durationMs);cache.bindAudio(audio as unknown as HTMLAudioElement)
+  const first=await cache.api.resolve(id)
+  expect(first.url).toBe(id.startsWith('kuwo:')?'https://kw-lv.kuwo.cn/qa.mp3':'https://m801.music.126.net/qa.mp3');expect(first.status).toBe('available');expect(first.reason).toBe('external_source');expect(first.originTrackID).toBe(id)
+  expect(h.requests('/resolve')).toHaveLength(1);expect(h.requests('/tracks/details')).toHaveLength(0);expect(h.requests('https://')).toHaveLength(0);expect(h.rows.size).toBe(0)
   expect(h.requests('/resolve')[0][1]).toMatchObject({body:JSON.stringify({delivery:'direct'}),headers:{'X-Music-Delivery':'direct'}})
-  expect(h.requests('https://')[0][1]).toMatchObject({credentials:'omit',mode:'cors',cache:'no-store',redirect:'error'})
-  h.fetcher.mockClear();await cache.api.resolve(id);const reopened=factory()(h.fetcher as typeof fetch,h.options);expect((await reopened.api.resolve(id)).url).toMatch(/^blob:/)
+  audio.prepare(first.url!);audio.playIntent();await settle();expect(h.requests('https://')).toHaveLength(0)
+  audio.playing();await settle();expect(h.requests('https://')).toHaveLength(0);expect(h.rows.size).toBe(0)
+  audio.completeBuffer();await vi.waitFor(()=>expect(h.rows.size).toBe(1))
+  expect(h.requests('https://')).toHaveLength(1);expect(h.requests('https://')[0][1]).toMatchObject({credentials:'omit',mode:'cors',cache:'force-cache',redirect:'error'})
+  expect(audio.src).toBe(first.url);expect(audio.currentTime).toBe(.25);expect(audio.paused).toBe(false);expect(first.status).toBe('available')
+  h.fetcher.mockClear();expect((await cache.api.resolve(id)).url).toMatch(/^blob:/);const reopened=factory()(h.fetcher as typeof fetch,h.options);expect((await reopened.api.resolve(id)).url).toMatch(/^blob:/)
   expect(h.requests('/resolve')).toHaveLength(0);expect(h.requests('https://')).toHaveLength(0)
   expect(JSON.stringify([...h.rows.values()])).not.toMatch(/https:|expiresAt|cookie|integration-guest-A/i)
   cache.dispose();reopened.dispose()
  })
  it('runs every cache miss through raw status, delivery and source-specific host checks',async()=>{
   for(const reply of [{delivery:undefined},{status:'available',url:'https://music.kmhomelab.cn:2443/cloudmusic/audio.mp3'},{url:'https://kw-lv.kuwo.cn/wrong-source.mp3'},{status:'unknown'}] as Partial<Resolution>[]){
-   const h=fixture();h.setReply(reply);const cache=factory()(h.fetcher as typeof fetch,h.options),result=await cache.api.resolve('netease:1483378295')
+   const h=fixture();h.setReply(reply);const cache=factory()(h.fetcher as typeof fetch,h.options),audio=new PlaybackAudio(h.durationMs);cache.bindAudio(audio as unknown as HTMLAudioElement);const result=await cache.api.resolve('netease:1483378295')
+   audio.prepare(result.url??'');audio.playing();audio.completeBuffer();await settle()
    expect(result.status).toBe('unavailable');expect(result.url).toBeUndefined();expect(h.requests('https://')).toHaveLength(0);expect(h.rows.size).toBe(0);cache.dispose()
   }
  })
  it('keeps an explicit preview and a CORS-denied source playable directly without marking either persisted',async()=>{
   const preview=fixture();preview.setReply({status:'preview'});const a=factory()(preview.fetcher as typeof fetch,preview.options)
-  expect(await a.api.resolve('netease:1483378295')).toMatchObject({status:'preview',url:'https://m801.music.126.net/qa.mp3',reason:'external_source'});expect(preview.requests('https://')).toHaveLength(0);expect(preview.rows.size).toBe(0)
+  const previewAudio=new PlaybackAudio(preview.durationMs);a.bindAudio(previewAudio as unknown as HTMLAudioElement)
+  const short=await a.api.resolve('netease:1483378295');expect(short).toMatchObject({status:'preview',url:'https://m801.music.126.net/qa.mp3',reason:'external_source'});previewAudio.prepare(short.url!);previewAudio.playing();previewAudio.completeBuffer();await settle();expect(preview.requests('/tracks/details')).toHaveLength(0);expect(preview.requests('https://')).toHaveLength(0);expect(preview.rows.size).toBe(0);expect(short.status).toBe('preview')
   const denied=fixture(),real=denied.fetcher.getMockImplementation()!;denied.fetcher.mockImplementation(async(input,options)=>{if(String(input).startsWith('https://'))throw new TypeError('CORS denied');return real(input,options)})
-  const b=factory()(denied.fetcher as typeof fetch,denied.options),result=await b.api.resolve('netease:1483378295');expect(result.url).toBe('https://m801.music.126.net/qa.mp3');expect(result.reason).not.toContain('device_audio_cache');expect(denied.rows.size).toBe(0);a.dispose();b.dispose()
+  const b=factory()(denied.fetcher as typeof fetch,denied.options),audio=new PlaybackAudio(denied.durationMs);b.bindAudio(audio as unknown as HTMLAudioElement)
+  const result=await b.api.resolve('netease:1483378295');expect(result.url).toBe('https://m801.music.126.net/qa.mp3');expect(denied.requests('https://')).toHaveLength(0)
+  audio.prepare(result.url!);audio.playing();audio.completeBuffer();await vi.waitFor(()=>expect(denied.requests('https://')).toHaveLength(1));await vi.waitFor(()=>expect(b.snapshot().state).toBe('bypassed'))
+  expect(result.status).toBe('available');expect(result.reason).not.toContain('device_audio_cache');expect(audio.src).toBe(result.url);expect(audio.paused).toBe(false);expect(audio.currentTime).toBe(.25);expect(denied.rows.size).toBe(0);a.dispose();b.dispose()
  })
  it('binds restored cookies to their actual server user before reading a previously warmed cache',async()=>{
-  const h=fixture(),cache=factory()(h.fetcher as typeof fetch,h.options);await cache.api.ensureGuest();await cache.api.resolve('netease:1483378295');h.setOwner('integration-guest-B');await cache.api.ensureGuest();await cache.api.resolve('netease:1483378295')
+  const h=fixture(),cache=factory()(h.fetcher as typeof fetch,h.options),audio=new PlaybackAudio(h.durationMs);cache.bindAudio(audio as unknown as HTMLAudioElement);await cache.api.ensureGuest()
+  const first=await cache.api.resolve('netease:1483378295');expect(first.url).toBe('https://m801.music.126.net/qa.mp3');expect(h.requests('https://')).toHaveLength(0);audio.prepare(first.url!);audio.playing();audio.completeBuffer();await vi.waitFor(()=>expect(h.rows.size).toBe(1))
+  h.setOwner('integration-guest-B');await cache.api.ensureGuest();const second=await cache.api.resolve('netease:1483378295');expect(second.url).toBe('https://m801.music.126.net/qa.mp3');expect(h.rows.size).toBe(1);expect(h.requests('https://')).toHaveLength(1)
+  audio.prepare(second.url!);audio.playing();audio.completeBuffer();await vi.waitFor(()=>expect(h.rows.size).toBe(2))
   expect(h.rows.size).toBe(2);expect(new Set([...h.rows.values()].map(row=>row.namespace)).size).toBe(2);expect(h.requests('/resolve')).toHaveLength(2);cache.dispose()
  })
 })

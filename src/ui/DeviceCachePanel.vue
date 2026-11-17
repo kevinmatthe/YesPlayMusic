@@ -28,7 +28,7 @@ onBeforeUnmount(()=>unsubscribe())
 <template>
  <section class="device-cache-panel" aria-labelledby="device-cache-title">
   <div class="device-cache-heading"><h3 id="device-cache-title">本机音频缓存</h3><span>只在这台设备</span></div>
-  <p id="device-cache-explanation" class="muted">首次准备需要完整下载，之后重播和刷新可直接使用本机音频。只保存通过完整性与时长检查的歌曲，试听片段不会当作完整缓存。</p>
+  <p id="device-cache-explanation" class="muted">没有本机缓存时直接流式播放，不等整曲下载。完整缓冲后再尝试后台保存；只保存通过完整性与时长检查的歌曲，试听片段不会当作完整缓存。</p>
   <label class="device-cache-toggle"><input type="checkbox" :checked="state.enabled" :disabled="working||!ready" aria-describedby="device-cache-explanation" @change="toggle"/><span><strong>自动缓存完整歌曲</strong><small>关闭后不再新增，已有缓存仍可播放。</small></span></label>
   <div class="device-cache-usage"><span>当前音乐空间 · {{state.count}} 首</span><strong>{{mib(state.usedBytes)}} <span>/ {{mib(state.limitBytes)}}</span></strong></div>
   <meter :value="state.usedBytes" :max="state.limitBytes" min="0" aria-label="当前空间的本机缓存用量"/>

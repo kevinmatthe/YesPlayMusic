@@ -13,8 +13,9 @@ describe('global player cache event integration',()=>{
  it('also releases its media binding when the music store scope is disposed',()=>{
   const music=useMusic();music.$dispose();expect(fixtures.events).toEqual(['unbind','dispose'])
  })
- it('announces the first complete download through the existing toast and unsubscribes on player disposal',()=>{
-  const music=useMusic();fixtures.listener?.({state:'downloading',message:'首次准备需要完整下载；完成后可直接使用本机缓存。'})
-  expect(music.toast).toContain('首次准备');expect(music.toast).toContain('完整下载');music.player.dispose();expect(fixtures.unsubscribe).toHaveBeenCalledTimes(1)
+ it('announces background persistence without telling listeners to wait for the first download',()=>{
+  const music=useMusic();fixtures.listener?.({state:'streaming',message:'开播无需等待整曲下载。'});expect(music.toast).toBe('')
+  fixtures.listener?.({state:'downloading',message:'正在后台校验并保存本机缓存，当前流式播放不受影响。'})
+  expect(music.toast).toContain('后台');expect(music.toast).toContain('播放不受影响');expect(music.toast).not.toContain('首次准备');music.player.dispose();expect(fixtures.unsubscribe).toHaveBeenCalledTimes(1)
  })
 })
