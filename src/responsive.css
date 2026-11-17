@@ -282,6 +282,8 @@ button, a, input, select { touch-action: manipulation; }
 }
 
 @media (max-width: 470px) {
+  /* Keep the reading area available when large text makes the header wrap. */
+  .app-shell .topbar { position: static; }
   .app-shell .topbar .top-actions .listening-link > span:last-child { display: none; }
   .app-shell .topbar .top-actions .profile-badge { max-width: 7rem; padding-inline: .25rem; }
   .app-shell .topbar .top-actions .profile-copy { display: grid; max-width: 4.25rem; }
