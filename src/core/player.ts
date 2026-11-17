@@ -224,6 +224,7 @@ export class NativePlayer {
       this.storage.setItem(this.orderKey(), JSON.stringify({
         shuffle: this.state.shuffle, repeat: this.state.repeat,
         trackIDs: this.state.tracks.map(t => t.id), currentIndex: this.state.currentIndex,
+        queueRevision: this.state.queueRevision,
         order: this.order.snapshot(),
       }));
     } catch { /* Storage refusal affects restoration, never current playback. */ }
@@ -236,8 +237,13 @@ export class NativePlayer {
       this.order.setEnabled(value.shuffle === true);
       if (['off','all','one'].includes(value.repeat)) this.state.repeat = value.repeat;
       const ids = this.state.tracks.map(t => t.id);
-      if (Array.isArray(value.trackIDs) && value.trackIDs.length === ids.length && value.trackIDs.every((id: unknown, i: number) => id === ids[i]) && value.currentIndex === this.state.currentIndex)
+      const sameQueue = Array.isArray(value.trackIDs) && value.trackIDs.length === ids.length && value.trackIDs.every((id: unknown, i: number) => id === ids[i]);
+      if (sameQueue && value.currentIndex === this.state.currentIndex)
         this.order.restore(value.order, ids.length, this.state.currentIndex);
+      // A local exhausted round has no selected occurrence. The server keeps a
+      // valid anchor index; restore this stop only against its exact revision.
+      else if (sameQueue && value.currentIndex === -1 && this.state.currentIndex === 0 && value.queueRevision === this.state.queueRevision && value.order?.current === null && value.order?.remaining?.length === 0 && this.order.restore(value.order, ids.length, -1))
+        this.state.currentIndex = -1;
       this.state.shuffle = this.order.enabled;
     } catch { /* A corrupt or old snapshot cannot restore songs or media URLs. */ }
   }
@@ -254,8 +260,9 @@ export class NativePlayer {
     this.dirty = 0;
     this.saved = 0;
     this.state.queueConflict = false;
-    if (tracks.length)
+    if (tracks.length && this.state.currentIndex >= 0)
       await this.select(this.state.currentIndex, false, q.positionMs);
+    else if (tracks.length) this.stopAfterCurrentRemoval();
     else this.resetAudio();
   }
   async reloadQueue() {
@@ -267,7 +274,7 @@ export class NativePlayer {
     this.state.ready = false;
     try {
       await this.loadQueue();
-      this.state.status =
+      if (this.state.currentIndex >= 0) this.state.status =
         this.state.resolutionStatus === 'preview' ? '当前音源仅可试听' : '';
     } catch (error) {
       this.state.status = '载入服务器队列失败：' + message(error);
@@ -599,11 +606,12 @@ export class NativePlayer {
     const first = !this.state.tracks.length;
     this.state.tracks.push(track);
     this.order.append(1);
-    this.persistOrder();
-    if (first) {
-      this.state.currentIndex = 0;
-      void this.select(0, false, 0);
+    if (first || this.state.currentIndex < 0) {
+      this.state.currentIndex = first ? 0 : this.state.shuffle ? this.order.replacementAfterRemoval(false)! : this.state.tracks.length - 1;
+      if (!this.state.shuffle) this.order.selected(this.state.currentIndex);
+      void this.select(this.state.currentIndex, false, 0);
     }
+    this.persistOrder();
     this.touch();
   }
   async enqueueMany(tracks: Track[]): Promise<BatchEnqueueResult> {
@@ -649,7 +657,7 @@ export class NativePlayer {
     const snapshot: Queue = {
       revision: this.state.queueRevision,
       trackIDs: [...before, ...accepted.map(t => t.id)],
-      currentIndex: before.length ? this.state.currentIndex : 0,
+      currentIndex: before.length ? Math.max(0, this.state.currentIndex) : 0,
       positionMs: before.length ? Math.max(0, Math.round(this.state.positionMs)) : 0,
     };
     const conflict = (error: string) => {
@@ -692,15 +700,30 @@ export class NativePlayer {
     }
     this.state.tracks.push(...accepted);
     this.order.append(accepted.length);
-    this.persistOrder();
     this.saved = version;
-    if (!before.length) {
-      this.state.currentIndex = 0;
-      void this.select(0, false, 0);
+    if (!before.length || this.state.currentIndex < 0) {
+      this.state.currentIndex = !before.length ? 0 : this.state.shuffle ? this.order.replacementAfterRemoval(false)! : before.length;
+      if (!this.state.shuffle) this.order.selected(this.state.currentIndex);
+      void this.select(this.state.currentIndex, false, 0);
+      if (before.length) this.touch();
     } else if (this.state.status.startsWith('队列保存失败')) {
       this.state.status = this.playbackNotice;
     }
+    this.persistOrder();
     return { accepted, failed, ...(capacityError ? { error: capacityError } : {}) };
+  }
+  private stopAfterCurrentRemoval() {
+    this.epoch++;
+    this.playIntent = false;
+    this.resetAudio();
+    this.resolution = undefined;
+    this.playbackNotice = '';
+    this.state.currentIndex = -1;
+    this.state.loading = false;
+    this.state.resolutionStatus = '';
+    this.state.sourceInfo = null;
+    this.state.lyricLines = [];
+    if (!this.state.queueConflict) this.state.status = '本轮已播放完，请从队列选择歌曲继续。';
   }
   removeAt(index: number) {
     if (index < 0 || index >= this.state.tracks.length) return;
@@ -714,14 +737,17 @@ export class NativePlayer {
       return;
     }
     this.state.currentIndex = active
-      ? Math.min(current, this.state.tracks.length - 1)
+      ? this.state.shuffle ? this.order.replacementAfterRemoval(this.state.repeat === 'all') ?? -1 : Math.min(current, this.state.tracks.length - 1)
       : index < current
       ? current - 1
       : current;
     if (active) {
-      this.order.selected(this.state.currentIndex);
-      this.state.positionMs = 0;
-      void this.select(this.state.currentIndex, false, 0);
+      if (this.state.currentIndex < 0) this.stopAfterCurrentRemoval();
+      else {
+        if (!this.state.shuffle) this.order.selected(this.state.currentIndex);
+        this.state.positionMs = 0;
+        void this.select(this.state.currentIndex, false, 0);
+      }
     }
     this.persistOrder();
     this.touch();
@@ -821,7 +847,7 @@ export class NativePlayer {
     const snapshot: Queue = {
       revision: this.state.queueRevision,
       trackIDs: this.state.tracks.map(t => t.id),
-      currentIndex: this.state.tracks.length ? this.state.currentIndex : 0,
+      currentIndex: this.state.tracks.length ? Math.max(0, this.state.currentIndex) : 0,
       positionMs: this.state.tracks.length
         ? Math.max(0, Math.round(this.state.positionMs))
         : 0,

@@ -108,3 +108,71 @@ it('keeps an explicitly paused recovery paused when its late source arrives',asy
  vi.mocked(s.api.resolve).mockImplementationOnce(()=>new Promise(resolve=>finish=resolve));s.audio.dispatchEvent(new Event('error'));await flush();s.player.pause()
  finish({trackID:t(1).id,status:'available',url:'https://audio.example/1',expiresAt:'2030-01-01'});await flush();await s.ready();expect(s.audio.paused).toBe(true);expect(s.audio.currentTime).toBe(9)
 })
+
+async function deletionSetup(tracks=[t(1),t(2),t(3),t(4)],repeat:'off'|'all'|'one'='off',exhaust=false){
+ vi.spyOn(Math,'random').mockReturnValue(0)
+ const s=setup();await s.player.initialize();await s.player.playTracks(tracks);await s.ready();s.player.setShuffle(true);s.player.setRepeat(repeat)
+ const visited=[s.player.state.currentIndex]
+ for(let i=0;i<(exhaust?3:2);i++){s.player.next();await flush();await s.ready();visited.push(s.player.state.currentIndex)}
+ return {...s,visited}
+}
+describe('current occurrence deletion in a shuffled round',()=>{
+ it.each(['off','all','one'] as const)('selects the only unplayed occurrence paused without a new round in %s mode',async repeat=>{
+  const s=await deletionSetup(undefined,repeat);expect(s.visited).toEqual([0,2,3]);expect(s.player.state.upcomingIndices).toEqual([1])
+  s.player.removeAt(3);await flush();await s.ready()
+  expect(s.player.state.tracks.map(t=>t.id)).toEqual(['netease:1','netease:2','netease:3'])
+  expect(s.player.state.currentIndex).toBe(1);expect(s.player.currentTrack?.id).toBe('netease:2');expect(s.audio.paused).toBe(true);expect(s.player.state.upcomingIndices).toEqual([])
+  await s.player.play();expect(s.audio.paused).toBe(false);s.player.next();await flush();if(repeat!=='all')expect(s.audio.paused).toBe(true)
+ })
+ it.each(['off','one'] as const)('leaves a completed %s round with no selected replacement and does not replay on play/next',async repeat=>{
+  const s=await deletionSetup(undefined,repeat,true),resolves=vi.mocked(s.api.resolve).mock.calls.length
+  expect(s.visited).toEqual([0,2,3,1]);s.player.removeAt(1);await flush();await s.ready()
+  expect(s.player.state.tracks.map(t=>t.id)).toEqual(['netease:1','netease:3','netease:4']);expect(s.player.currentTrack).toBeNull();expect(s.audio.src).toBe('');expect(s.audio.paused).toBe(true)
+  await s.player.play();s.player.next();await flush();expect(s.api.resolve).toHaveBeenCalledTimes(resolves);expect(s.audio.paused).toBe(true)
+ })
+ it('starts only a legitimate next round when all-mode pending occurrences are exhausted',async()=>{
+  const s=await deletionSetup(undefined,'all',true);s.player.removeAt(1);await flush();await s.ready();expect(s.audio.paused).toBe(true)
+  const seen=[s.player.state.currentIndex];expect(s.player.state.upcomingIndices).toHaveLength(2);await s.player.play()
+  for(let i=0;i<2;i++){s.player.next();await flush();await s.ready();seen.push(s.player.state.currentIndex)}expect(new Set(seen).size).toBe(3)
+ })
+ it('keeps an unplayed duplicate recording as a distinct replacement occurrence',async()=>{
+  const s=await deletionSetup([t(1),t(1),t(3),t(4)]);s.player.removeAt(3);await flush();await s.ready()
+  expect(s.player.state.currentIndex).toBe(1);expect(s.player.state.tracks.map(t=>t.id)).toEqual(['netease:1','netease:1','netease:3']);await s.player.play();s.player.previous();await flush();await s.ready();expect(s.player.state.currentIndex).toBe(2)
+ })
+ it('maps the unplayed replacement correctly after reorder and adjacent deletion',async()=>{
+  const s=await deletionSetup();s.player.move(0,3);expect(s.player.state.currentIndex).toBe(2);s.player.removeAt(1);expect(s.player.state.currentIndex).toBe(1)
+  s.player.removeAt(1);await flush();await s.ready();expect(s.player.state.tracks.map(t=>t.id)).toEqual(['netease:2','netease:1']);expect(s.player.currentTrack?.id).toBe('netease:2');expect(s.player.state.currentIndex).toBe(0);expect(s.audio.paused).toBe(true)
+ })
+ it('does not rebuild a completed round after the last unplayed neighbor was removed',async()=>{
+  const s=await deletionSetup();s.player.removeAt(1);expect(s.player.state.currentIndex).toBe(2);s.player.removeAt(2);await flush();expect(s.player.state.tracks.map(t=>t.id)).toEqual(['netease:1','netease:3']);expect(s.player.currentTrack).toBeNull()
+ })
+ it('restores a reserved unplayed replacement paused and retains the prior actual history',async()=>{
+  const a=await deletionSetup();a.player.removeAt(3);await flush();await a.ready();await a.player.saveQueue();const saved={...a.queue(),trackIDs:a.queue().trackIDs.slice()};a.player.dispose()
+  const b=setup('A',new Map(a.storageMap),saved);await b.player.initialize();await b.ready();expect(b.player.state.currentIndex).toBe(1);expect(b.audio.paused).toBe(true);expect(b.player.state.upcomingIndices).toEqual([])
+  await b.player.play();b.player.previous();await flush();await b.ready();expect(b.player.currentTrack?.id).toBe('netease:3');expect(b.player.state.currentIndex).toBe(2)
+ })
+ it('restores an exhausted deletion without resurrecting a played selection or sending a negative server index',async()=>{
+  const a=await deletionSetup(undefined,'off',true);a.player.removeAt(1);await flush();await a.player.saveQueue();expect(a.queue().currentIndex).toBeGreaterThanOrEqual(0);const saved={...a.queue(),trackIDs:a.queue().trackIDs.slice()};a.player.dispose()
+  const b=setup('A',new Map(a.storageMap),saved);await b.player.initialize();await b.ready();expect(b.player.currentTrack).toBeNull();expect(b.audio.src).toBe('');expect(b.player.state.tracks).toHaveLength(3);await b.player.play();expect(b.api.resolve).not.toHaveBeenCalled()
+ })
+ it('selects only newly added occurrences paused after an exhausted deletion',async()=>{
+  const a=await deletionSetup(undefined,'off',true);a.player.removeAt(1);await flush();a.player.enqueue(t(5));await flush();await a.ready();expect(a.player.currentTrack?.id).toBe('netease:5');expect(a.audio.paused).toBe(true)
+  const b=await deletionSetup(undefined,'off',true);b.player.removeAt(1);await flush();expect((await b.player.enqueueMany([t(5),t(6)])).accepted).toHaveLength(2);await flush();await b.ready();expect(['netease:5','netease:6']).toContain(b.player.currentTrack?.id);expect(b.audio.paused).toBe(true);expect(b.player.state.upcomingIndices).toHaveLength(1)
+ })
+})
+
+it('takes an unplayed replacement instead of replaying forward history after deleting a rewound current item',async()=>{
+ const s=await deletionSetup();s.player.previous();await flush();await s.ready();expect(s.player.state.currentIndex).toBe(2);s.player.removeAt(2);await flush();await s.ready();expect(s.player.currentTrack?.id).toBe('netease:2');await s.player.play();s.player.next();await flush();expect(s.audio.paused).toBe(true)
+})
+it('invalidates a deleted pending resolution when the remaining off round is exhausted',async()=>{
+ const s=setup();await s.player.initialize();await s.player.playTracks([t(1),t(2)]);await s.ready();s.player.setShuffle(true);let finish!:(v:Awaited<ReturnType<MusicApi['resolve']>>)=>void
+ vi.mocked(s.api.resolve).mockImplementationOnce(()=>new Promise(resolve=>finish=resolve));s.player.next();await flush();s.player.removeAt(1);finish({trackID:t(2).id,status:'available',url:'https://audio.example/2',expiresAt:'2030-01-01'});await flush();await s.ready();expect(s.player.currentTrack).toBeNull();expect(s.audio.src).toBe('');expect(s.audio.paused).toBe(true)
+})
+it('rejects an old stopped snapshot after another server revision chooses a current item',async()=>{
+ const a=await deletionSetup(undefined,'off',true);a.player.removeAt(1);await flush();await a.player.saveQueue();const stored={...a.queue(),trackIDs:a.queue().trackIDs.slice(),revision:a.queue().revision+1,currentIndex:0};a.player.dispose()
+ const b=setup('A',new Map(a.storageMap),stored);await b.player.initialize();await b.ready();expect(b.player.currentTrack?.id).toBe('netease:1');expect(b.audio.paused).toBe(true)
+})
+it('saves and restores the newly selected batch occurrence after adding to a stopped round',async()=>{
+ const a=await deletionSetup(undefined,'off',true);a.player.removeAt(1);await flush();await a.player.enqueueMany([t(5),t(6)]);await flush();await a.ready();await a.player.saveQueue();const index=a.player.state.currentIndex,stored={...a.queue(),trackIDs:a.queue().trackIDs.slice()};expect(index).toBeGreaterThanOrEqual(3);expect(stored.currentIndex).toBe(index);a.player.dispose()
+ const b=setup('A',new Map(a.storageMap),stored);await b.player.initialize();await b.ready();expect(b.player.state.currentIndex).toBe(index);expect(['netease:5','netease:6']).toContain(b.player.currentTrack?.id);expect(b.player.state.upcomingIndices).toHaveLength(1);expect(b.audio.paused).toBe(true)
+})

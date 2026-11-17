@@ -37,6 +37,14 @@ export class PlaybackOrder {
  next(repeatAll:boolean):number|null{
   if(!this.keys.length)return null
   if(this.cursor+1<this.history.length){this.current=this.history[++this.cursor]!;this.remaining=this.remaining.filter(k=>k!==this.current);return this.keys.indexOf(this.current)}
+  return this.takeRemaining(repeatAll)
+ }
+ replacementAfterRemoval(repeatAll:boolean):number|null{
+  this.history=this.history.slice(0,this.cursor+1)
+  return this.takeRemaining(repeatAll)
+ }
+ private takeRemaining(repeatAll:boolean):number|null{
+  if(!this.keys.length)return null
   if(!this.remaining.length){
    if(!repeatAll)return null
    this.remaining=this.shuffled(this.keys)
@@ -52,8 +60,8 @@ export class PlaybackOrder {
   return this.keys.indexOf(this.current)
  }
  append(count:number){
-  const added=Array.from({length:count},()=>++this.serial);this.keys.push(...added)
-  if(this.current===null)this.current=this.keys[0]??null
+  const wasEmpty=this.keys.length===0,added=Array.from({length:count},()=>++this.serial);this.keys.push(...added)
+  if(wasEmpty)this.current=this.keys[0]??null
   if(this.enabled)this.remaining=this.shuffled([...this.remaining,...added.filter(k=>k!==this.current)])
  }
  remove(index:number){
