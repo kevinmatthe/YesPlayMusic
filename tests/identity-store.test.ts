@@ -90,3 +90,9 @@ it.each(['switch-back','dispose'])('discards a delayed personal snapshot after %
  if(action==='switch-back'){music.user={id:'b',kind:'guest'};music.user={id:'guest-a',kind:'guest'}}else music.$dispose()
  finish([]);await refreshing;expect(music.playlists).toEqual([])
 })
+
+it('does not apply a slow history response from the previous identity',async()=>{
+ context();const music=useMusic();await music.initialize();let finish!:(v:unknown[])=>void
+ fixtures.api.history.mockImplementationOnce(()=>new Promise(resolve=>finish=resolve));const read=music.loadHistory();music.user={id:'b',kind:'guest'}
+ finish([{track:{id:'netease:private'},positionMs:0,playedAt:''}]);await read;expect(music.history).toEqual([])
+})

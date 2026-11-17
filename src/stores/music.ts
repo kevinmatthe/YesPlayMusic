@@ -29,7 +29,7 @@ export const useMusic = defineStore('music', () => {
   function notify(message:string){toast.value=message;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.value='',3200)}
   let cacheState=''
   unsubscribeCache=deviceAudioCache.subscribe(next=>{if(next.state==='downloading'&&cacheState!=='downloading')notify('首次准备需要完整下载，稍后即可播放。');cacheState=next.state})
-  async function run<T>(fn:()=>Promise<T>):Promise<T|undefined>{error.value='';try{return await fn()}catch(e){if(e instanceof IdentityNavigation)throw e;error.value=e instanceof Error?e.message:String(e);return undefined}}
+  async function run<T>(fn:()=>Promise<T>):Promise<T|undefined>{const identity=identityEpoch;error.value='';try{return await fn()}catch(e){if(e instanceof IdentityNavigation)throw e;if(!disposed&&identity===identityEpoch)error.value=e instanceof Error?e.message:String(e);return undefined}}
   async function refresh(){await run(async()=>{const likesBefore=likes.value,likedBefore=likes.value.map(t=>t.id).join('\n'),likeVersion=likeState.revision,identity=identityEpoch;const[p,l,h,m]=await Promise.all([musicApi.listPlaylists(),musicApi.likes(),musicApi.history(),musicApi.me()]);if(disposed||identity!==identityEpoch)return;playlists.value=p;if(likeVersion===likeState.revision&&likesBefore===likes.value&&likedBefore===likes.value.map(t=>t.id).join('\n'))likes.value=l;history.value=h;userKind.value=m.user.kind;user.value=m.user})}
   async function initialize(){
     ready.value=false;error.value=''
@@ -75,9 +75,9 @@ export const useMusic = defineStore('music', () => {
   async function remove(p:Playlist){return run(async()=>{await musicApi.deletePlaylist(p);if(selectedID.value===p.id)selectedID.value='';await refresh();notify('歌单已删除')})}
   async function toggleLike(track:Track){await likeActions.toggle(track);const problem=likeState.errors[track.id];if(problem)notify(problem)}
   async function add(p:Playlist,track:Track){const result=await update(p,[...p.tracks.map(t=>t.id),track.id]);if(result)notify('已加入歌单');return result}
-  async function loadHistory(){await run(async()=>{history.value=await musicApi.history()})}
+  async function loadHistory(){const identity=identityEpoch;await run(async()=>{const result=await musicApi.history();if(!disposed&&identity===identityEpoch)history.value=result})}
   async function clearHistory(){await run(async()=>{await musicApi.clearHistory();history.value=[];notify('历史已清空')})}
-  async function loadShares(){await run(async()=>shares.value=await musicApi.shares())}
+  async function loadShares(){const identity=identityEpoch;await run(async()=>{const result=await musicApi.shares();if(!disposed&&identity===identityEpoch)shares.value=result})}
   async function revoke(id:string){await run(async()=>{await musicApi.revokeShare(id);await loadShares();notify('分享已撤销')})}
   async function importData(data:ExportData){await run(async()=>{await musicApi.importData(data);await refresh();notify('已复制到当前音乐空间')})}
   return {player,playlists,likes,likeState,history,shares,ready,busy,error,toast,userKind,user,interests,feishuEnabled,inFeishu,identityMessage,selectedID,selected,likedIDs,run,notify,refresh,initialize,changeSession,connectFeishu,refreshFeishuProfile,create,update,remove,toggleLike,add,loadHistory,clearHistory,loadShares,revoke,importData}
