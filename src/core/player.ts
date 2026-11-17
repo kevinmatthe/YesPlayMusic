@@ -1,4 +1,5 @@
 import { reactive } from 'vue';
+import {PlaybackOrder} from './playback-order';
 import { musicApi } from './api';
 import { withTranslation } from './lyrics';
 import type { LyricLine, MusicApi, Queue, Resolution, Track, PlaybackSourceInfo } from './types';
@@ -20,6 +21,7 @@ export interface PlayerState {
   volume: number;
   repeat: RepeatMode;
   shuffle: boolean;
+  upcomingIndices: number[];
   queueRevision: number;
   queueConflict: boolean;
   ready: boolean;
@@ -90,6 +92,7 @@ export class NativePlayer {
     volume: 0.8,
     repeat: 'off',
     shuffle: false,
+    upcomingIndices: [],
     queueRevision: 0,
     queueConflict: false,
     ready: false,
@@ -99,6 +102,8 @@ export class NativePlayer {
   private readonly api: MusicApi;
   private readonly storage: StorageLike;
   private epoch = 0;
+  private readonly order = new PlaybackOrder(() => Math.random());
+  private owner = '';
   private resolution: Resolution | undefined;
   private retries = 0;
   private recovering = false;
@@ -141,7 +146,10 @@ export class NativePlayer {
     this.deviceID = device;
     this.on('loadedmetadata', () => this.loaded());
     this.on('play', () => {
+      if (!this.playIntent || this.disposed) { this.audio.pause(); this.state.playing = false; return; }
       this.state.playing = true;
+      this.order.played(this.state.currentIndex);
+      this.persistOrder();
       this.touch();
       this.mediaPosition();
       void this.record();
@@ -169,7 +177,7 @@ export class NativePlayer {
       }
     });
     this.on('error', () => {
-      if (!this.failed) void this.recover(this.epoch, this.playIntent);
+      if (!this.failed) void this.recover(this.epoch);
     });
     this.on('ended', () => {
       this.state.playing = false;
@@ -196,13 +204,42 @@ export class NativePlayer {
   }
   private async initializeOnce() {
     try {
-      await this.api.ensureGuest();
+      const session = await this.api.ensureGuest();
+      this.owner = session.user.id;
       await this.loadQueue();
     } catch (error) {
       this.state.status = '恢复音乐空间失败：' + message(error);
     } finally {
       this.state.ready = true;
     }
+  }
+  private orderKey() { return `music-order:v1:${this.deviceID}:${this.owner}`; }
+  private updateUpcoming() {
+    this.state.upcomingIndices = this.state.shuffle ? this.order.upcoming() : this.state.tracks.map((_, i) => i).slice(this.state.currentIndex + 1);
+  }
+  private persistOrder() {
+    this.updateUpcoming();
+    if (!this.owner || this.disposed) return;
+    try {
+      this.storage.setItem(this.orderKey(), JSON.stringify({
+        shuffle: this.state.shuffle, repeat: this.state.repeat,
+        trackIDs: this.state.tracks.map(t => t.id), currentIndex: this.state.currentIndex,
+        order: this.order.snapshot(),
+      }));
+    } catch { /* Storage refusal affects restoration, never current playback. */ }
+  }
+  private restoreOrder() {
+    try {
+      const text = this.storage.getItem(this.orderKey());
+      if (!text || text.length > 150000) return;
+      const value = JSON.parse(text);
+      this.order.setEnabled(value.shuffle === true);
+      if (['off','all','one'].includes(value.repeat)) this.state.repeat = value.repeat;
+      const ids = this.state.tracks.map(t => t.id);
+      if (Array.isArray(value.trackIDs) && value.trackIDs.length === ids.length && value.trackIDs.every((id: unknown, i: number) => id === ids[i]) && value.currentIndex === this.state.currentIndex)
+        this.order.restore(value.order, ids.length, this.state.currentIndex);
+      this.state.shuffle = this.order.enabled;
+    } catch { /* A corrupt or old snapshot cannot restore songs or media URLs. */ }
   }
   private async loadQueue() {
     const q = await this.api.queue(this.deviceID);
@@ -211,6 +248,9 @@ export class NativePlayer {
     this.state.tracks = tracks;
     this.state.currentIndex = validIndex(q.currentIndex, tracks.length);
     this.state.queueRevision = q.revision;
+    this.order.reset(tracks.length, this.state.currentIndex);
+    this.restoreOrder();
+    this.updateUpcoming();
     this.dirty = 0;
     this.saved = 0;
     this.state.queueConflict = false;
@@ -242,13 +282,20 @@ export class NativePlayer {
     }
     this.state.tracks = tracks.slice();
     this.state.currentIndex = validIndex(startIndex, tracks.length);
+    this.order.reset(tracks.length, this.state.currentIndex);
+    this.persistOrder();
     this.state.positionMs = 0;
     this.touch();
     await this.select(this.state.currentIndex, true, 0);
   }
   async playAt(index: number) {
     if (index < 0 || index >= this.state.tracks.length) return;
+    this.order.selected(index);
+    await this.navigate(index);
+  }
+  private async navigate(index: number) {
     this.state.currentIndex = index;
+    this.persistOrder();
     this.state.positionMs = 0;
     this.touch();
     await this.select(index, true, 0);
@@ -296,10 +343,10 @@ export class NativePlayer {
       }
       this.resolution = resolution;
       if (this.expired(resolution)) {
-        await this.recover(epoch, autoplay);
+        await this.recover(epoch);
         return;
       }
-      this.loadAudio(resolution, this.pendingPosition, autoplay);
+      this.loadAudio(resolution, this.pendingPosition, this.playIntent);
     } catch (error) {
       if (epoch === this.epoch)
         this.unavailable('音源解析失败：' + message(error));
@@ -397,7 +444,7 @@ export class NativePlayer {
           : '播放失败，请点击播放按钮重试：' + sourceMessage(message(error));
     }
   }
-  private async recover(epoch: number, autoplay: boolean) {
+  private async recover(epoch: number) {
     if (epoch !== this.epoch || this.recovering || this.disposed) return;
     if (this.retries >= 1) {
       this.failed = true;
@@ -432,7 +479,7 @@ export class NativePlayer {
         this.unavailable(next.reason || '音源不可用，已停止重试');
         return;
       }
-      this.loadAudio(next, position, autoplay);
+      this.loadAudio(next, position, this.playIntent);
     } catch (error) {
       if (epoch === this.epoch)
         this.unavailable('恢复音源失败，已停止重试：' + message(error));
@@ -458,7 +505,7 @@ export class NativePlayer {
       return;
     }
     if (this.expired(this.resolution)) {
-      await this.recover(this.epoch, true);
+      await this.recover(this.epoch);
       return;
     }
     if (this.metadataReady) await this.startAudio();
@@ -481,11 +528,11 @@ export class NativePlayer {
   next() {
     if (!this.state.tracks.length) return;
     let next = this.state.currentIndex + 1;
-    if (this.state.shuffle && this.state.tracks.length > 1) {
-      const options = this.state.tracks
-        .map((_, i) => i)
-        .filter(i => i !== this.state.currentIndex);
-      next = options[Math.floor(Math.random() * options.length)]!;
+    if (this.state.shuffle) {
+      const shuffled = this.order.next(this.state.repeat === 'all');
+      if (shuffled === null) this.pause();
+      else void this.navigate(shuffled);
+      return;
     }
     if (next >= this.state.tracks.length) {
       if (this.state.repeat === 'all') next = 0;
@@ -500,6 +547,11 @@ export class NativePlayer {
   }
   previous() {
     if (!this.state.tracks.length) return;
+    if (this.state.shuffle) {
+      const previous = this.order.previous();
+      if (previous !== null) void this.navigate(previous);
+      return;
+    }
     if (this.state.positionMs > 3000) {
       this.seek(0);
       return;
@@ -535,13 +587,19 @@ export class NativePlayer {
   }
   setRepeat(mode: RepeatMode) {
     this.state.repeat = mode;
+    this.persistOrder();
   }
   setShuffle(value: boolean) {
+    if (this.disposed) return;
+    this.order.setEnabled(value);
     this.state.shuffle = value;
+    this.persistOrder();
   }
   enqueue(track: Track) {
     const first = !this.state.tracks.length;
     this.state.tracks.push(track);
+    this.order.append(1);
+    this.persistOrder();
     if (first) {
       this.state.currentIndex = 0;
       void this.select(0, false, 0);
@@ -633,6 +691,8 @@ export class NativePlayer {
       return { accepted, failed, error };
     }
     this.state.tracks.push(...accepted);
+    this.order.append(accepted.length);
+    this.persistOrder();
     this.saved = version;
     if (!before.length) {
       this.state.currentIndex = 0;
@@ -648,6 +708,7 @@ export class NativePlayer {
     const active = index === current;
     if (active) this.pause();
     this.state.tracks.splice(index, 1);
+    this.order.remove(index);
     if (!this.state.tracks.length) {
       this.clear();
       return;
@@ -658,9 +719,11 @@ export class NativePlayer {
       ? current - 1
       : current;
     if (active) {
+      this.order.selected(this.state.currentIndex);
       this.state.positionMs = 0;
       void this.select(this.state.currentIndex, false, 0);
     }
+    this.persistOrder();
     this.touch();
   }
   move(from: number, to: number) {
@@ -673,6 +736,7 @@ export class NativePlayer {
     )
       return;
     const current = this.state.currentIndex;
+    this.order.move(from, to);
     const [track] = this.state.tracks.splice(from, 1);
     this.state.tracks.splice(to, 0, track!);
     this.state.currentIndex =
@@ -683,6 +747,7 @@ export class NativePlayer {
         : from > current && to <= current
         ? current + 1
         : current;
+    this.persistOrder();
     this.touch();
   }
   clear() {
@@ -692,6 +757,8 @@ export class NativePlayer {
     this.resolution = undefined;
     this.state.tracks = [];
     this.state.currentIndex = 0;
+    this.order.reset(0, 0);
+    this.persistOrder();
     this.state.status = '';
     this.state.resolutionStatus = '';
     this.state.lyricLines = [];
@@ -768,6 +835,7 @@ export class NativePlayer {
         );
         this.state.queueRevision = saved.revision;
         this.saved = version;
+        this.persistOrder();
       } catch (error) {
         if ((error as { status?: number }).status === 409) {
           this.state.queueConflict = true;
