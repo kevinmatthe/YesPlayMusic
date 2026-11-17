@@ -212,7 +212,7 @@ export function createDeviceAudioCache(base:MusicApi,options:DeviceCacheOptions=
       return
      }
      checkFill();badKeys.delete(ctx.key);await usage(ctx.namespace);checkFill()
-     publish({state:'cached',message:'完整音频已保存到本机；本次继续流式播放，下次可使用本机缓存。'})
+     publish({state:'cached',message:'完整音频已保存到本机，播放不受影响；重播可使用本机缓存。'})
     }finally{clearTimeout(timeout);controller.abort();if(controllers.get(ctx.key)===controller)controllers.delete(ctx.key)}
    })
   }catch(error){
