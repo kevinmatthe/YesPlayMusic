@@ -76,3 +76,17 @@ it('does not overwrite a newly confirmed like with an earlier refresh snapshot',
  await music.toggleLike({id:'netease:7',source:'netease',externalID:'7',title:'Test',artist:'',album:'',picture:'',durationMs:1})
  finish([]);await refreshing;expect(music.likes.map(t=>t.id)).toEqual(['netease:7'])
 })
+
+it('retains batch confirmations that mutate the current likes array in place',async()=>{
+ context();const music=useMusic();await music.initialize();let finish!:(v:never[])=>void
+ fixtures.api.likes.mockResolvedValueOnce([]);fixtures.api.history.mockImplementationOnce(()=>new Promise(resolve=>finish=resolve));const refreshing=music.refresh();for(let i=0;i<5;i++)await Promise.resolve()
+ music.likes.push({id:'netease:8',source:'netease',externalID:'8',title:'Batch',artist:'',album:'',picture:'',durationMs:1});finish([]);await refreshing
+ expect(music.likes.map(t=>t.id)).toEqual(['netease:8'])
+})
+it.each(['switch-back','dispose'])('discards a delayed personal snapshot after %s',async action=>{
+ context();const music=useMusic();await music.initialize();let finish!:(v:never[])=>void
+ fixtures.api.listPlaylists.mockResolvedValueOnce([{id:'old-private-list',name:'old',revision:1,tracks:[]}]);fixtures.api.history.mockImplementationOnce(()=>new Promise(resolve=>finish=resolve))
+ const refreshing=music.refresh();for(let i=0;i<5;i++)await Promise.resolve()
+ if(action==='switch-back'){music.user={id:'b',kind:'guest'};music.user={id:'guest-a',kind:'guest'}}else music.$dispose()
+ finish([]);await refreshing;expect(music.playlists).toEqual([])
+})

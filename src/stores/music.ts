@@ -12,7 +12,7 @@ export const useMusic = defineStore('music', () => {
   const unbindCache=player.audio?deviceAudioCache.bindAudio(player.audio):()=>{}
   let unsubscribeCache=()=>{}
   const originalDispose=player.dispose.bind(player)
-  let disposed=false
+  let disposed=false,identityEpoch=0
   const disposePlayer=()=>{if(disposed)return;disposed=true;interests.dispose();likeActions.setOwner('');unbindCache();unsubscribeCache();clearTimeout(toastTimer);originalDispose()}
   if(player.audio)player.dispose=disposePlayer
   onScopeDispose(disposePlayer)
@@ -21,7 +21,7 @@ export const useMusic = defineStore('music', () => {
   const user=ref<Session['user']>()
   const interests=markRaw(createInterestFeed(musicApi))
   const likeActions=markRaw(createLikeActions(musicApi,()=>likes.value,next=>likes.value=next)),likeState=likeActions.state
-  watch(()=>user.value?.id||'',id=>{interests.setOwner(id);likeActions.setOwner(id)},{flush:'sync'})
+  watch(()=>user.value?.id||'',id=>{identityEpoch++;interests.setOwner(id);likeActions.setOwner(id)},{flush:'sync'})
   const feishuEnabled=ref(false),feishuAppID=ref(''),inFeishu=ref(false),identityMessage=ref('')
   const selectedID=ref(''), selected=computed(()=>playlists.value.find(p=>p.id===selectedID.value))
   const likedIDs=computed(()=>new Set(likes.value.map(t=>t.id)))
@@ -30,7 +30,7 @@ export const useMusic = defineStore('music', () => {
   let cacheState=''
   unsubscribeCache=deviceAudioCache.subscribe(next=>{if(next.state==='downloading'&&cacheState!=='downloading')notify('首次准备需要完整下载，稍后即可播放。');cacheState=next.state})
   async function run<T>(fn:()=>Promise<T>):Promise<T|undefined>{error.value='';try{return await fn()}catch(e){if(e instanceof IdentityNavigation)throw e;error.value=e instanceof Error?e.message:String(e);return undefined}}
-  async function refresh(){await run(async()=>{const likesBefore=likes.value,likeVersion=likeState.revision,identity=user.value?.id;const[p,l,h,m]=await Promise.all([musicApi.listPlaylists(),musicApi.likes(),musicApi.history(),musicApi.me()]);if(identity!==user.value?.id)return;playlists.value=p;if(likeVersion===likeState.revision&&likesBefore===likes.value)likes.value=l;history.value=h;userKind.value=m.user.kind;user.value=m.user})}
+  async function refresh(){await run(async()=>{const likesBefore=likes.value,likedBefore=likes.value.map(t=>t.id).join('\n'),likeVersion=likeState.revision,identity=identityEpoch;const[p,l,h,m]=await Promise.all([musicApi.listPlaylists(),musicApi.likes(),musicApi.history(),musicApi.me()]);if(disposed||identity!==identityEpoch)return;playlists.value=p;if(likeVersion===likeState.revision&&likesBefore===likes.value&&likedBefore===likes.value.map(t=>t.id).join('\n'))likes.value=l;history.value=h;userKind.value=m.user.kind;user.value=m.user})}
   async function initialize(){
     ready.value=false;error.value=''
     try{
