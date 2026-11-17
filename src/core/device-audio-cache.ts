@@ -291,7 +291,15 @@ export function createDeviceAudioCache(base:MusicApi,options:DeviceCacheOptions=
   const changed=()=>{playedSources.delete(audio);queueMicrotask(()=>{if(pendingFill&&audio.src!==pendingFill.res.url)cancelDownloads();if(audio.src===newestURL||audio.currentSrc===newestURL)newestURL='';reapURLs()})}
   audio.addEventListener('playing',playing);for(const event of ['progress','canplaythrough','suspend'])audio.addEventListener(event,progress)
   audio.addEventListener('error',error,true);audio.addEventListener('loadstart',changed);audio.addEventListener('emptied',changed)
-  const unbind=()=>{audio.removeEventListener('playing',playing);for(const event of ['progress','canplaythrough','suspend'])audio.removeEventListener(event,progress);playedSources.delete(audio);audio.removeEventListener('error',error,true);audio.removeEventListener('loadstart',changed);audio.removeEventListener('emptied',changed);audios.delete(audio);unbinds.delete(unbind);reapURLs()}
+  let bound=true
+  const unbind=()=>{
+   if(!bound)return;bound=false
+   audio.removeEventListener('playing',playing);for(const event of ['progress','canplaythrough','suspend'])audio.removeEventListener(event,progress);playedSources.delete(audio);audio.removeEventListener('error',error,true);audio.removeEventListener('loadstart',changed);audio.removeEventListener('emptied',changed);audios.delete(audio);unbinds.delete(unbind)
+   // The real store unbinds before player.dispose removes src. Invalidate work
+   // here; an emptied event will no longer be observed after the final unbind.
+   if(!audios.size){generation++;selection++;selected='';cancelDownloads();publish({state:'idle',message:''})}
+   reapURLs()
+  }
   unbinds.add(unbind);return unbind
  }
  function dispose(){if(disposed)return;disposed=true;cancelDownloads();releaseURLs();[...unbinds].forEach(unbind=>unbind());listeners.clear();if(typeof window!=='undefined')window.removeEventListener('pagehide',hide)}
