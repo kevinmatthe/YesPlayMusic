@@ -2,6 +2,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { createDeviceAudioCache } from './device-audio-cache';
 import type { DeviceCacheOptions } from './device-audio-cache';
+import { normalizeAssociation } from '../recommendation-association'
 import type {
   AuthOptions,
   CatalogueOptions,
@@ -130,6 +131,10 @@ export function createMusicApi(
       if(options?.refresh)query.set('refresh',options.refresh)
       if(options?.exclude?.length)query.set('exclude',options.exclude.slice(0,50).join(','))
       const result=await request<Recommendations>('/recommendations?'+query,'GET',undefined,false,signal)
+      result.tracks=result.tracks.map(item=>{
+        const {association:raw,...rest}=item,association=normalizeAssociation(raw)
+        return {...rest,...(association?{association}:{})}
+      })
       remember(result.tracks.map(item=>item.track))
       return result
     },

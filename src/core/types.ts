@@ -34,7 +34,8 @@ export interface Resolution {
   verification?: string;
 }
 export type PlaybackSourceInfo=Pick<Resolution,'mediaSource'|'originTrackID'|'matchMethod'|'verification'|'reason'> & { status?: Resolution['status']; delivery?: 'direct' };
-export interface Recommendation { track:Track; reason:string; basis:'likes'|'history'|'search'|'discovery' }
+export interface RecommendationAssociation { kind:'similar_song'; source:'netease'|'lastfm'; seedTrackID:string; sourceURL?:string; match?:number }
+export interface Recommendation { track:Track; reason:string; basis:'likes'|'history'|'search'|'discovery'; association?:RecommendationAssociation }
 export interface Recommendations { tracks:Recommendation[]; personalized:boolean }
 export interface SearchRecord { query:string; source:string; count:number; lastSearchedAt:string }
 export interface PlaylistImportResult { playlist:Playlist; imported:number; duplicatesSkipped:number; sourcePlaylistID:string }
