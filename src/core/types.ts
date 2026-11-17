@@ -83,16 +83,16 @@ export interface CatalogueOptions {
   sources: CatalogueSource[];
 }
 export interface MusicApi {
-  recommendations(limit?:number):Promise<Recommendations>;
-  searchHistory(limit?:number):Promise<{searches:SearchRecord[]}>;
-  recordSearch(query:string,source:string):Promise<void>;
-  clearSearchHistory():Promise<void>;
+  recommendations(limit?:number,signal?:AbortSignal,options?:{refresh?:string;exclude?:string[]}):Promise<Recommendations>;
+  searchHistory(limit?:number,signal?:AbortSignal):Promise<{searches:SearchRecord[]}>;
+  recordSearch(query:string,source:string,signal?:AbortSignal):Promise<void>;
+  clearSearchHistory(signal?:AbortSignal):Promise<void>;
   importNetEasePlaylist(urlOrID:string,name?:string):Promise<PlaylistImportResult>;
   catalogOptions(): Promise<CatalogueOptions>;
   authOptions(): Promise<AuthOptions>;
   ensureGuest(): Promise<Session>;
   me(): Promise<Session>;
-  search(q: string, source?: string): Promise<Track[]>;
+  search(q: string, source?: string, signal?:AbortSignal): Promise<Track[]>;
   details(ids: string[]): Promise<Track[]>;
   resolve(id: string): Promise<Resolution>;
   lyrics(id: string): Promise<Lyrics>;
@@ -105,7 +105,7 @@ export interface MusicApi {
   ): Promise<Playlist>;
   deletePlaylist(p: Playlist): Promise<void>;
   likes(): Promise<Track[]>;
-  setLike(id: string, like: boolean): Promise<void>;
+  setLike(id: string, like: boolean,signal?:AbortSignal): Promise<void>;
   history(): Promise<HistoryItem[]>;
   clearHistory(): Promise<void>;
   recordHistory(id: string, positionMs: number): Promise<void>;

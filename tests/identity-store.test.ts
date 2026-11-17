@@ -4,7 +4,7 @@ import { createIdentityNavigator, type IdentityHost } from '../src/identity'
 
 const fixtures=vi.hoisted(()=>({
   player:{initialize:vi.fn(),pause:vi.fn(),saveQueue:vi.fn(),dispose:vi.fn()},
-  api:{authOptions:vi.fn(),me:vi.fn(),ensureGuest:vi.fn(),exchangeFeishu:vi.fn(),refreshFeishuProfile:vi.fn(),listPlaylists:vi.fn(),likes:vi.fn(),history:vi.fn()},
+  api:{authOptions:vi.fn(),me:vi.fn(),ensureGuest:vi.fn(),exchangeFeishu:vi.fn(),refreshFeishuProfile:vi.fn(),listPlaylists:vi.fn(),likes:vi.fn(),history:vi.fn(),setLike:vi.fn()},
   host:undefined as IdentityHost|undefined,
 }))
 vi.mock('../src/core',()=>({createPlayer:()=>fixtures.player,musicApi:fixtures.api}))
@@ -17,7 +17,7 @@ beforeEach(()=>{
   vi.clearAllMocks();setActivePinia(createPinia())
   fixtures.api.authOptions.mockResolvedValue({guest:true,feishu:{enabled:true,appID:'cli_verified'}})
   fixtures.api.me.mockResolvedValue(guest);fixtures.api.ensureGuest.mockResolvedValue(guest)
-  fixtures.api.listPlaylists.mockResolvedValue([]);fixtures.api.likes.mockResolvedValue([]);fixtures.api.history.mockResolvedValue([])
+  fixtures.api.listPlaylists.mockResolvedValue([]);fixtures.api.likes.mockResolvedValue([]);fixtures.api.history.mockResolvedValue([]);fixtures.api.setLike.mockResolvedValue(undefined)
 })
 afterEach(()=>vi.unstubAllGlobals())
 function context(){
@@ -59,4 +59,20 @@ describe('identity navigation gates music initialization',()=>{
     expect(pending).toMatchObject({kind:'connect',guestID:'guest-a',appID:'cli_verified'})
     expect([...env.values.values()].join('')).not.toContain('one-use-code')
   })
+})
+
+describe('responsive store mutations',()=>{
+ it('starts library metadata while queue restoration is still pending',async()=>{
+  context();let finish!:()=>void;fixtures.player.initialize.mockImplementationOnce(()=>new Promise<void>(resolve=>finish=resolve))
+  const music=useMusic(),loading=music.initialize();for(let i=0;i<20;i++)await Promise.resolve()
+  expect(fixtures.api.listPlaylists).toHaveBeenCalledTimes(1);finish();await loading;expect(fixtures.player.initialize).toHaveBeenCalledTimes(1)
+ })
+})
+
+it('does not overwrite a newly confirmed like with an earlier refresh snapshot',async()=>{
+ context();const music=useMusic();await music.initialize()
+ let finish!:(v:never[])=>void;fixtures.api.history.mockImplementationOnce(()=>new Promise(resolve=>finish=resolve))
+ const refreshing=music.refresh();for(let i=0;i<5;i++)await Promise.resolve()
+ await music.toggleLike({id:'netease:7',source:'netease',externalID:'7',title:'Test',artist:'',album:'',picture:'',durationMs:1})
+ finish([]);await refreshing;expect(music.likes.map(t=>t.id)).toEqual(['netease:7'])
 })

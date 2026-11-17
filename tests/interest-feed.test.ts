@@ -11,8 +11,8 @@ function setup(){
 describe('own-session recommendations and explicit search memory',()=>{
  it('loads reasons and stable IDs without sending a client owner identifier',async()=>{
   const {api,feed}=setup();await feed.loadRecommendations();await feed.loadSearches()
-  expect(api.recommendations).toHaveBeenCalledExactlyOnceWith(12)
-  expect(api.searchHistory).toHaveBeenCalledExactlyOnceWith(20)
+  expect(api.recommendations).toHaveBeenCalledExactlyOnceWith(12,expect.any(AbortSignal),undefined)
+  expect(api.searchHistory).toHaveBeenCalledExactlyOnceWith(20,expect.any(AbortSignal))
   expect(feed.state.items[0]?.track.id).toBe('netease:1');expect(feed.state.personalized).toBe(true)
   expect(recommendationNote(feed.state.items[0]!)).toContain('喜欢')
  })
@@ -30,15 +30,15 @@ describe('own-session recommendations and explicit search memory',()=>{
  it('keeps the newest refresh when an older response arrives last',async()=>{
   const {api,feed}=setup(),late=deferred<Recommendations>()
   api.recommendations.mockImplementationOnce(()=>late.promise)
-  const old=feed.loadRecommendations();await feed.loadRecommendations();late.resolve({tracks:[item('netease:old')],personalized:true});await old
+  const old=feed.loadRecommendations();feed.cancelRecommendations();await feed.loadRecommendations();late.resolve({tracks:[item('netease:old')],personalized:true});await old
   expect(feed.state.items.map(v=>v.track.id)).toEqual(['netease:1'])
  })
- it.each(['empty','error'])('uses public discovery fallback for %s recommendations without recording search',async mode=>{
+ it.each(['empty','error'])('keeps %s recommendations honest without static fallback or search writes',async mode=>{
   const {api,feed,fallback}=setup()
   if(mode==='empty')api.recommendations.mockResolvedValue({tracks:[],personalized:false})
   else api.recommendations.mockRejectedValue(new Error('offline'))
   await feed.loadRecommendations()
-  expect(fallback).toHaveBeenCalledTimes(1);expect(feed.state.items[0]).toMatchObject({track:{id:'kuwo:1'},basis:'discovery'})
+  expect(fallback).not.toHaveBeenCalled();expect(feed.state.items).toEqual([]);expect(Boolean(feed.state.error)).toBe(mode==='error')
   expect(feed.state.personalized).toBe(false);expect(api.recordSearch).not.toHaveBeenCalled()
  })
  it('does not let an old history GET repopulate a cleared list',async()=>{
@@ -52,7 +52,7 @@ describe('own-session recommendations and explicit search memory',()=>{
   const record=feed.recordSearch('  模拟主动搜索  ','kuwo');await Promise.resolve();await Promise.resolve()
   const clear=feed.clearSearches();expect(api.clearSearchHistory).not.toHaveBeenCalled()
   saving.resolve();await Promise.all([record,clear])
-  expect(api.recordSearch).toHaveBeenCalledExactlyOnceWith('模拟主动搜索','kuwo')
+  expect(api.recordSearch).toHaveBeenCalledExactlyOnceWith('模拟主动搜索','kuwo',expect.any(AbortSignal))
   expect(api.clearSearchHistory).toHaveBeenCalledTimes(1);expect(feed.state.searches).toEqual([]);expect(api.searchHistory).not.toHaveBeenCalled()
  })
  it('cancels queued old-owner writes rather than sending them under the next session',async()=>{

@@ -40,8 +40,8 @@ describe('catalogue source switching',()=>{
  it('reports the selected platform failure without silently querying another platform',async()=>{
   const api={search:vi.fn(async()=>{throw new Error('selected source unavailable')})}
   const search=createSourceSearch(api);search.select('kuwo')
-  await expect(search.run('same')).rejects.toThrow('selected source unavailable')
-  expect(api.search).toHaveBeenCalledExactlyOnceWith('same','kuwo')
+  await search.run('same');expect(search.state.error).toContain('重试')
+  expect(api.search).toHaveBeenCalledExactlyOnceWith('same','kuwo',expect.any(AbortSignal))
   expect(search.state.searching).toBe(false)
  })
 })

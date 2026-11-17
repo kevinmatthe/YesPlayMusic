@@ -106,3 +106,15 @@ describe('typed same-origin API', () => {
     });
   });
 });
+
+describe('cancelable metadata and compatible refresh options',()=>{
+ it('passes AbortSignal to reads and additive refresh/exclude without changing direct delivery',async()=>{
+  const fetcher=vi.fn(async()=>new Response(JSON.stringify({tracks:[],personalized:false}))),controller=new AbortController(),api=createMusicApi(fetcher)
+  await api.recommendations(12,controller.signal,{refresh:'batch-2',exclude:['netease:1','kuwo:2']})
+  expect(fetcher).toHaveBeenCalledExactlyOnceWith('/music-api/v1/recommendations?limit=12&refresh=batch-2&exclude=netease%3A1%2Ckuwo%3A2',expect.objectContaining({signal:controller.signal,headers:expect.objectContaining({'X-Music-Delivery':'direct'})}))
+ })
+ it('preserves an actual abort instead of turning it into an offline error',async()=>{
+  const controller=new AbortController(),cancel=new DOMException('cancelled','AbortError'),fetcher=vi.fn(async()=>{controller.abort();throw cancel}),api=createMusicApi(fetcher)
+  await expect(api.search('test','netease',controller.signal)).rejects.toBe(cancel)
+ })
+})

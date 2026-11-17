@@ -60,7 +60,8 @@ export function createMusicApi(
     path: string,
     method = 'GET',
     data?: unknown,
-    keepalive = false
+    keepalive = false,
+    signal?: AbortSignal
   ): Promise<T> {
     let response: Response;
     try {
@@ -70,8 +71,10 @@ export function createMusicApi(
         headers: { 'X-Music-Delivery': 'direct', ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' }) },
         body: data === undefined ? undefined : JSON.stringify(data),
         keepalive,
+        ...(signal ? {signal} : {}),
       });
-    } catch {
+    } catch (error) {
+      if(signal?.aborted)throw error;
       throw new MusicApiError(503, '无法连接音乐服务，请检查网络后重试');
     }
     let result: unknown;
@@ -122,14 +125,17 @@ export function createMusicApi(
     metadata.clear();
   }
   const api: MusicApi = {
-    async recommendations(limit=12){
-      const result=await request<Recommendations>('/recommendations?limit='+E(String(limit)))
+    async recommendations(limit=12,signal,options){
+      const query=new URLSearchParams({limit:String(limit)})
+      if(options?.refresh)query.set('refresh',options.refresh)
+      if(options?.exclude?.length)query.set('exclude',options.exclude.slice(0,50).join(','))
+      const result=await request<Recommendations>('/recommendations?'+query,'GET',undefined,false,signal)
       remember(result.tracks.map(item=>item.track))
       return result
     },
-    searchHistory:(limit=20)=>request<{searches:SearchRecord[]}>('/search-history?limit='+E(String(limit))),
-    recordSearch:async(query,source)=>{await request('/search-history','POST',{query,source})},
-    clearSearchHistory:async()=>{await request('/search-history','DELETE',{})},
+    searchHistory:(limit=20,signal)=>request<{searches:SearchRecord[]}>('/search-history?limit='+E(String(limit)),'GET',undefined,false,signal),
+    recordSearch:async(query,source,signal)=>{await request('/search-history','POST',{query,source},false,signal)},
+    clearSearchHistory:async(signal)=>{await request('/search-history','DELETE',{},false,signal)},
     async importNetEasePlaylist(urlOrID,name){
       const input=urlOrID.trim()
       if(!input)throw new MusicApiError(400,'请输入公开网易歌单链接或数字 ID。')
@@ -160,9 +166,9 @@ export function createMusicApi(
       }));
     },
     me: () => request<Session>('/me'),
-    async search(q, source) {
+    async search(q, source,signal) {
       return remember(
-        (await request<{ tracks: Track[] }>('/search?q=' + E(q) + (source ? '&source=' + E(source) : ''))).tracks
+        (await request<{ tracks: Track[] }>('/search?q=' + E(q) + (source ? '&source=' + E(source) : ''),'GET',undefined,false,signal)).tracks
       );
     },
     async details(ids) {
@@ -224,11 +230,12 @@ export function createMusicApi(
     async likes() {
       return remember((await request<{ tracks: Track[] }>('/likes')).tracks);
     },
-    setLike: async (id, like) => {
+    setLike: async (id, like,signal) => {
       await request(
         '/likes/' + E(id),
         like ? 'PUT' : 'DELETE',
-        like ? {} : undefined
+        like ? {} : undefined,
+        false,signal
       );
     },
     history: async () => {
