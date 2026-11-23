@@ -12,21 +12,33 @@ const maxBody = 4 * 1024 * 1024
 
 async function jsonBody(req) {
   if (Number(req.headers['content-length']) > maxBody) throw new ApiError(413, 'request_too_large')
-  const method = req.method
-  if (method === 'GET') return {}
-  const parts = []
-  let length = 0
-  for await (const part of req.iterator({ destroyOnReturn: false })) {
-    length += part.length
-    if (length > maxBody) throw new ApiError(413, 'request_too_large')
-    parts.push(part)
-  }
-  if (!length) return {}
+  if (req.method === 'GET') return {}
+  // Vercel helpers replay bytes through on('data'/'end') after draining the
+  // IncomingMessage. Its async iterator and parsed body lose raw-byte checks.
+  const bytes = await new Promise((resolve, reject) => {
+    const parts = []
+    let length = 0
+    req.on('error', reject)
+    req.on('end', () => {
+      if (length <= maxBody) resolve(Buffer.concat(parts, length))
+    })
+    req.on('data', part => {
+      if (length > maxBody) return
+      length += part.length
+      if (length > maxBody) {
+        parts.length = 0
+        reject(new ApiError(413, 'request_too_large'))
+        return
+      }
+      parts.push(part)
+    })
+  })
+  if (!bytes.length) return {}
   if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? '')) {
     throw new ApiError(415, 'json_required')
   }
   try {
-    const value = JSON.parse(Buffer.concat(parts).toString())
+    const value = JSON.parse(bytes.toString())
     if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error()
     return value
   } catch {
@@ -84,18 +96,18 @@ export function createMusicHandler(env, scope) {
     if (method === 'POST' && ['auth/feishu/exchange', 'auth/feishu/profile'].includes(key)) {
       throw new ApiError(503, 'feishu_not_configured')
     }
+    const body = await jsonBody(req)
     const db = await database()
     if (method === 'GET' && key === 'health') {
       await db.query('SELECT 1 FROM music_users LIMIT 0')
       return { status: 'ok', database: 'ready', scope, feishu: false, lastfm: !!env.MUSIC_LASTFM_API_KEY, unmKuwo: env.MUSIC_UNM_KUWO !== '0' }
     }
     if (method === 'POST' && ['auth/guest', 'auth/recover'].includes(key)) {
-      return issueSession(db, req, res, secure, await jsonBody(req), id === 'recover')
+      return issueSession(db, req, res, secure, body, id === 'recover')
     }
     if (category === 'shared' && count === 2 && method === 'GET') return readShare(db, catalogue, id)
     const account = await session(db, req)
     const owner = account.row.id
-    const body = await jsonBody(req)
     if ((key === 'me' && method === 'GET') || (['auth/logout', 'auth/recovery'].includes(key) && method === 'POST')) {
       return accountAction(key, db, account, res, secure)
     }
