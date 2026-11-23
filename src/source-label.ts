@@ -1,6 +1,7 @@
 import type { PlaybackSourceInfo } from './core'
 const connections:Record<string,[string,string]>={
  'unm:pyncmd':['网易云（第三方连接）','第三方连接'],
+ 'unm:kuwo':['酷我（UNM 版次匹配）','UNM 匹配'],
  'netease:anonymous':['网易云（匿名连接）','匿名连接'],
  'netease:account':['网易云（服务器账号）','服务器账号']
 }

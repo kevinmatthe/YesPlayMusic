@@ -1,6 +1,7 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { createDeviceAudioCache } from './device-audio-cache';
+import { hasVerifiedKuwoMatch } from './audio-source';
 import type { DeviceCacheOptions } from './device-audio-cache';
 import { normalizeAssociation } from '../recommendation-association'
 import type {
@@ -41,12 +42,13 @@ export async function descriptorIdentity(raw: string): Promise<string> {
   url.searchParams.sort();
   return 'legacy:' + bytesToHex(sha256(new TextEncoder().encode(url.href)));
 }
-export function isExternalAudioURL(raw: unknown, trackID: string): boolean {
+export function isExternalAudioURL(raw: unknown, trackID: string, source?: Partial<Resolution>): boolean {
   if (typeof raw !== 'string') return false;
   try {
     const u = new URL(raw);
     if (u.protocol !== 'https:' || u.username || u.password || u.hash || u.port) return false;
     const h = u.hostname.toLowerCase();
+    if (hasVerifiedKuwoMatch(trackID, source)) return h === 'kuwo.cn' || h.endsWith('.kuwo.cn');
     if (trackID.startsWith('netease:')) return h === 'music.126.net' || h.endsWith('.music.126.net') || h === 'music.163.com' || h.endsWith('.music.163.com');
     if (trackID.startsWith('kuwo:')) return h === 'kuwo.cn' || h.endsWith('.kuwo.cn');
     return false;
@@ -97,6 +99,14 @@ export function createMusicApi(
           ? '飞书临时授权未通过，请在飞书内重新授权。'
           : raw === 'feishu_not_configured'
           ? '飞书登录尚未启用，访客空间仍可使用。'
+          : raw === 'database_not_configured'
+          ? '这个部署尚未关联独立音乐数据库。'
+          : raw === 'database_migration_required'
+          ? '独立音乐数据库还需要执行迁移。'
+          : raw === 'database_scope_mismatch' || raw === 'database_scope_missing' || raw === 'database_configuration_invalid'
+          ? '音乐数据库配置与当前部署环境不一致。'
+          : raw === 'music_service_unavailable'
+          ? '音乐服务暂不可用，请稍后重试。'
           : response.status === 401
           ? '会话已过期，请使用恢复码重新打开音乐空间。'
           : raw;
@@ -197,7 +207,7 @@ export function createMusicApi(
         return {trackID:id,status:'unavailable',reason:'这首旧卡片歌曲没有可识别的音源，请搜索后播放。'};
       const out = await request<Resolution>('/tracks/' + E(id) + '/resolve', 'POST', {delivery:'direct'});
       const playable = out.status === 'available' || out.status === 'preview';
-      if (!['available','preview','unavailable'].includes(out.status) || out.delivery !== 'direct' || out.trackID !== id || (playable && !isExternalAudioURL(out.url, id)))
+      if (!['available','preview','unavailable'].includes(out.status) || out.delivery !== 'direct' || out.trackID !== id || (playable && !isExternalAudioURL(out.url, id, out)))
         return {trackID:id,status:'unavailable',reason:'当前服务未提供可用的直连音源，请稍后重试。',diagnosticReason:'direct_audio_required'};
       if (out.status === 'unavailable') {
         const reason = out.reason || '';
@@ -328,7 +338,7 @@ export function createDeviceCachedMusicApi(
   return createDeviceAudioCache(createMusicApi(fetcher), {
     ...options,
     fetcher,
-    externalAudioURL: (url, trackID) => isExternalAudioURL(url.href, trackID),
+    externalAudioURL: (url, trackID, source) => isExternalAudioURL(url.href, trackID, source),
     blockedAudioHosts: ['kmhomelab.cn'],
   });
 }

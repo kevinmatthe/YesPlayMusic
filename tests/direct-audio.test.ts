@@ -38,6 +38,14 @@ describe('web direct audio contract',()=>{
   const api=createMusicApi(vi.fn(async(_input:string|URL|Request,_init?:RequestInit)=>new Response(JSON.stringify({trackID:'netease:42',status:'available',url:'https://m801.music.126.net/42.mp3'}))));
   expect(await api.resolve('netease:42')).toMatchObject({status:'unavailable'});
  });
+ it('accepts a Kuwo CDN for a NetEase track only with verified UNM edition metadata',async()=>{
+  const value={trackID:'netease:42',status:'available',delivery:'direct',url:'https://kw-lv.kuwo.cn/43.mp3',mediaSource:'unm:kuwo',originTrackID:'kuwo:43',matchMethod:'title_artist_album_duration',verification:'id_and_duration'};
+  const resolve=(data:unknown)=>createMusicApi(vi.fn(async()=>Response.json(data))).resolve('netease:42');
+  expect(await resolve(value)).toMatchObject({status:'available',originTrackID:'kuwo:43'});
+  expect(await resolve({...value,originTrackID:'netease:42'})).toMatchObject({status:'unavailable'});
+  expect(await resolve({...value,verification:'audio_prefix'})).toMatchObject({status:'unavailable'});
+  expect(await resolve({...value,url:'https://kw-lv.kuwo.cn.invalid/43.mp3'})).toMatchObject({status:'unavailable'});
+ });
  it('clears legacy MinIO artwork on history and shared/exported library responses',async()=>{
   const track={id:'netease:42',source:'netease',externalID:'42',title:'song',artist:'',album:'',picture:'/music-api/v1/tracks/netease:42/artwork',durationMs:200000};
   const api=createMusicApi(vi.fn(async(input:string|URL|Request)=>new Response(JSON.stringify(String(input).endsWith('/history')?{history:[{track,positionMs:0,playedAt:''}]}:{format:'betago-music',version:1,likes:[track],playlists:[{name:'shared',tracks:[track]}]}))));
