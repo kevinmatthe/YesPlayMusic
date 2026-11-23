@@ -3,6 +3,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { createDeviceAudioCache } from './device-audio-cache';
 import type { DeviceCacheOptions } from './device-audio-cache';
 import { normalizeAssociation } from '../recommendation-association'
+import { playlistSyncMessage } from '../playlist-sync'
 import type {
   AuthOptions,
   CatalogueOptions,
@@ -14,6 +15,7 @@ import type {
   Lyrics,
   MusicApi,
   Playlist,
+  PlaylistAddResult,
   Queue,
   Resolution,
   Session,
@@ -22,7 +24,7 @@ import type {
 } from './types';
 
 export class MusicApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public code?: string) {
     super(message);
     this.name = 'MusicApiError';
   }
@@ -100,7 +102,7 @@ export function createMusicApi(
           : response.status === 401
           ? '会话已过期，请使用恢复码重新打开音乐空间。'
           : raw;
-      throw new MusicApiError(response.status, message);
+      throw new MusicApiError(response.status, message, raw);
     }
     // Historical rows and shared/exported libraries can retain old object URLs.
     // Strip these at every JSON boundary, before any view creates an <img>.
@@ -120,6 +122,20 @@ export function createMusicApi(
       metadata.set(t.id, t);
     });
     return tracks;
+  }
+  function rememberPlaylist(playlist: Playlist) {
+    remember(playlist.tracks);
+    return playlist;
+  }
+  async function syncRequest(path: string, payload: object) {
+    try {
+      return rememberPlaylist(await request<Playlist>(path, 'POST', payload));
+    } catch (error) {
+      if (error instanceof MusicApiError && error.code) {
+        throw new MusicApiError(error.status, playlistSyncMessage(error.code), error.code);
+      }
+      throw error;
+    }
   }
   function reset() {
     guest = undefined;
@@ -219,8 +235,19 @@ export function createMusicApi(
       result.playlists.forEach(p => remember(p.tracks));
       return result.playlists;
     },
-    createPlaylist: (name, trackIDs = []) =>
-      request<Playlist>('/playlists', 'POST', { name, trackIDs }),
+    async getPlaylist(id) {
+      return rememberPlaylist(await request<Playlist>('/playlists/' + E(id)));
+    },
+    createSyncPlaylist: urlOrID => syncRequest('/playlists/sync', { urlOrID }),
+    syncPlaylist: id => syncRequest('/playlists/' + E(id) + '/sync', {}),
+    async addPlaylistTracks(id, trackIDs) {
+      const result = await request<PlaylistAddResult>('/playlists/' + E(id) + '/tracks', 'POST', { trackIDs });
+      rememberPlaylist(result.playlist);
+      return result;
+    },
+    async createPlaylist(name, trackIDs = []) {
+      return rememberPlaylist(await request<Playlist>('/playlists', 'POST', { name, trackIDs }));
+    },
     updatePlaylist: (p, trackIDs, name = p.name) =>
       request<Playlist>('/playlists/' + E(p.id), 'PUT', {
         name,

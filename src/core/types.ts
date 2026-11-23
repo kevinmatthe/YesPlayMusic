@@ -13,6 +13,21 @@ export interface Playlist {
   name: string;
   revision: number;
   tracks: Track[];
+  kind?: 'sync';
+  sync?: {
+    source: 'netease';
+    sourcePlaylistID: string;
+    lastSuccessAt?: string;
+    lastAttemptAt?: string;
+    lastError?: string;
+    runningUntil?: string;
+  };
+}
+export interface PlaylistAddResult {
+  playlist: Playlist;
+  addedIDs: string[];
+  existingIDs: string[];
+  overflowIDs: string[];
 }
 export interface Queue {
   revision: number;
@@ -70,6 +85,7 @@ export interface ExportData {
 export interface AuthOptions {
   guest: boolean;
   feishu: { enabled: boolean; appID: string };
+  library?: { playlistAdd?: boolean; neteasePlaylistSync?: boolean };
 }
 export interface Session {
   user: { id: string; kind: 'guest' | 'feishu'; displayName?: string; avatarURL?: string; profileUpdatedAt?: string | null; profileNeedsRefresh?: boolean };
@@ -98,6 +114,10 @@ export interface MusicApi {
   resolve(id: string): Promise<Resolution>;
   lyrics(id: string): Promise<Lyrics>;
   listPlaylists(): Promise<Playlist[]>;
+  getPlaylist(id: string): Promise<Playlist>;
+  createSyncPlaylist(urlOrID: string): Promise<Playlist>;
+  syncPlaylist(id: string): Promise<Playlist>;
+  addPlaylistTracks(id: string, trackIDs: string[]): Promise<PlaylistAddResult>;
   createPlaylist(name: string, trackIDs?: string[]): Promise<Playlist>;
   updatePlaylist(
     p: Playlist,

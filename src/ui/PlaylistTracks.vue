@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import type { Playlist, Track } from '../core'
 import { musicApi } from '../core'
-import { editPlaylistBatch, reconcileSelection } from '../playlist-batch'
+import { reconcileSelection } from '../playlist-batch'
 import { markTracksLiked } from '../batch-like'
 import { useMusic } from '../stores/music'
 import { useOverlay } from '../stores/overlay'
@@ -16,7 +16,8 @@ const root=ref<HTMLElement>(),entry=ref<HTMLButtonElement>(),target=ref(''),addi
 const visible=computed(()=>{const q=filter.value.trim().toLocaleLowerCase();return q?props.playlist.tracks.filter(t=>`${t.title} ${t.artist} ${t.album}`.toLocaleLowerCase().includes(q)):props.playlist.tracks})
 const selected=computed(()=>visible.value.filter(t=>ids.value.includes(t.id)))
 const all=computed(()=>visible.value.length>0&&selected.value.length===visible.value.length)
-const others=computed(()=>music.playlists.filter(p=>p.id!==props.playlist.id))
+const readOnly=computed(()=>props.playlist.kind==='sync')
+const others=computed(()=>music.editablePlaylists.filter(p=>p.id!==props.playlist.id))
 const scope=computed(()=>filter.value.trim()?`当前筛选结果（${visible.value.length} 首）`:`整个歌单（${props.playlist.tracks.length} 首）`)
 watch(busy,value=>emit('busy',value),{flush:'sync'})
 watch(filter,()=>{ids.value=[];notice.value='';adding.value=false})
@@ -37,12 +38,12 @@ function report(text:string,failed:Track[]=[]){notice.value=text;problem.value=f
 async function mutate(action:'add'|'remove'){
  if(busy.value||!selected.value.length)return
  const tracks=selected.value.slice(),source=props.playlist,targetID=action==='remove'?source.id:target.value
- if(!targetID)return
+ if(!targetID||(action==='remove'?readOnly.value:!others.value.some(p=>p.id===targetID)))return
  if(action==='remove'&&!confirm(`从「${source.name}」移除所选 ${tracks.length} 首歌曲？只影响这张歌单，喜欢、其他歌单与播放队列不变。`))return
  busy.value=true;notice.value=''
  try{
-  const result=await editPlaylistBatch(musicApi,targetID,tracks,action)
-  if(result.playlist){const i=music.playlists.findIndex(p=>p.id===targetID);if(i>=0)music.playlists[i]=result.playlist}
+  const result=await music.editTracks(targetID,tracks,action)
+  if(!result)return
   const verb=action==='add'?'加入':'移除',skipped=action==='add'?'已存在':'已不在歌单'
   report(`${verb}成功 ${result.succeeded.length} 首，${skipped} ${result.skipped.length} 首，失败 ${result.failed.length} 首。${result.error||''}${result.failed.length?' 未成功的歌曲已保留选中，可重试。':''}`,result.failed)
   if(!result.failed.length)adding.value=false
@@ -103,13 +104,13 @@ function actualIndex(index:number){return props.playlist.tracks.findIndex(t=>t.i
     <button class="subtle" :disabled="!selected.length||busy" @click="enqueue"><Icon name="queue" :size="16"/>加入播放队列</button>
     <button class="subtle" :disabled="!selected.length||busy" @click="likeSelected"><Icon name="heart" :size="16"/>标记为喜欢</button>
     <button class="subtle" :disabled="!selected.length||busy" :aria-expanded="adding" @click="adding=!adding"><Icon name="plus" :size="16"/>加入其他歌单</button>
-    <button class="subtle batch-remove" :disabled="!selected.length||busy" @click="mutate('remove')"><Icon name="trash" :size="16"/>从本歌单移除</button>
+    <button v-if="!readOnly" class="subtle batch-remove" :disabled="!selected.length||busy" @click="mutate('remove')"><Icon name="trash" :size="16"/>从本歌单移除</button>
    </div>
    <form v-if="adding" class="batch-target" @submit.prevent="mutate('add')"><label for="batch-target">选择目标歌单</label><select id="batch-target" v-model="target" :disabled="busy" required><option value="" disabled>请选择其他歌单</option><option v-for="p in others" :key="p.id" :value="p.id">{{p.name}}（{{p.tracks.length}} 首）</option></select><button class="primary" :disabled="!target||busy">{{busy?'正在保存…':'确认加入'}}</button><p v-if="!others.length">还没有其他歌单，请先新建一张歌单。</p></form>
    <p v-if="busy" role="status" class="batch-progress">正在处理，请稍候…</p>
   </div></Transition>
   <p v-if="notice" class="batch-result" :class="{'has-failures':problem}" role="status">{{notice}}</p>
-  <TrackRows :tracks="visible" :editable="!selecting&&!filter.trim()" :selecting="selecting" :selection="ids" :disabled="busy" @select="toggle" @play="play" @move="(from,to)=>emit('move',from,to)" @remove="emit('remove',actualIndex($event))" @add="overlay.add" @share="overlay.share('track',$event.id)"/>
+  <TrackRows :tracks="visible" :editable="!readOnly&&!selecting&&!filter.trim()" :selecting="selecting" :selection="ids" :disabled="busy" @select="toggle" @play="play" @move="(from,to)=>emit('move',from,to)" @remove="emit('remove',actualIndex($event))" @add="overlay.add" @share="overlay.share('track',$event.id)"/>
   <p v-if="filter.trim()&&!visible.length" class="muted">这张歌单没有匹配的歌曲。<button class="subtle" :disabled="busy" @click="filter=''">清空筛选</button></p>
  </section>
 </template>
