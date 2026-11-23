@@ -4,6 +4,7 @@ import type { MusicApi, Resolution, Session } from './types'
 import { createIndexedDBAudioStore } from './device-audio-cache-store'
 import type { DeviceAudioRecord, DeviceAudioStore } from './device-audio-cache-store'
 import { completeMP3DurationMs, validateCompleteMP3 } from './device-audio-cache-mp3'
+import { hasVerifiedKuwoMatch } from './audio-source'
 
 export const DEVICE_CACHE_BYTES=256*1024*1024
 export const DEVICE_TRACK_BYTES=64*1024*1024
@@ -21,7 +22,7 @@ export interface DeviceCacheOptions {
  lock?:<T>(name:string,action:()=>Promise<T>)=>Promise<T>
  // Supplied by the direct-source integrator's trusted provider-host contract.
  // With no policy, fill is disabled; existing account-scoped bytes remain usable.
- externalAudioURL?:(url:URL,trackID:string)=>boolean
+ externalAudioURL?:(url:URL,trackID:string,source:Resolution)=>boolean
  blockedAudioHosts?:readonly string[]
  resolveRemote?:(id:string)=>Promise<Resolution>
 }
@@ -35,8 +36,9 @@ const capacity=(value:number|undefined,fallback:number)=>typeof value==='number'
 function staticSource(res:Resolution):DeviceAudioRecord['source'] {
  const source:DeviceAudioRecord['source']={}
  if(/^[a-z][a-z0-9_-]{0,31}:[a-z][a-z0-9_-]{0,31}$/.test(res.mediaSource||''))source.mediaSource=res.mediaSource
- if(res.originTrackID===res.trackID)source.originTrackID=res.originTrackID
- if(res.matchMethod==='provider_external_id')source.matchMethod=res.matchMethod
+ const matched=hasVerifiedKuwoMatch(res.trackID,res)
+ if(res.originTrackID===res.trackID||matched)source.originTrackID=res.originTrackID
+ if(res.matchMethod==='provider_external_id'||matched)source.matchMethod=res.matchMethod
  if(['audio_prefix','id_and_duration','provider_id'].includes(res.verification||''))source.verification=res.verification
  if(/^[a-z0-9_]{1,120}$/.test(res.reason||''))source.reason=res.reason
  return source
@@ -53,8 +55,8 @@ export function createDeviceAudioCache(base:MusicApi,options:DeviceCacheOptions=
    return url
   }catch{return}
  }
- function approvedURL(value:string,trackID:string){
-  const url=externalURL(value);try{return !!url&&!!options.externalAudioURL?.(url,trackID)}catch{return false}
+ function approvedURL(value:string,res:Resolution){
+  const url=externalURL(value);try{return !!url&&!!options.externalAudioURL?.(url,res.trackID,res)}catch{return false}
  }
  const blockedResolution=(res:Resolution):Resolution=>({...res,status:'unavailable',url:undefined,expiresAt:undefined,reason:'当前音源不是允许的外部直连地址，已停止播放。'})
  const maxBytes=capacity(options.maxBytes,DEVICE_CACHE_BYTES),maxTrackBytes=capacity(options.maxTrackBytes,DEVICE_TRACK_BYTES)
@@ -164,7 +166,7 @@ export function createDeviceAudioCache(base:MusicApi,options:DeviceCacheOptions=
   if(res.url&&(res.status==='available'||res.status==='preview'))streams.add(res.url)
   if(res.status!=='available'||!res.url)return res
   if(!state.enabled||!storageAvailable){publish({state:state.enabled?'bypassed':'disabled',message:state.enabled?'浏览器存储不可用，本次未缓存，仍可直接播放。':'自动缓存已关闭；已有缓存仍可播放。'});return res}
-  if(!approvedURL(res.url,ctx.id)){publish({state:'bypassed',message:'此外部音源尚未启用本机缓存，仍可原地址直放。'});return res}
+  if(!approvedURL(res.url,res)){publish({state:'bypassed',message:'此外部音源尚未启用本机缓存，仍可原地址直放。'});return res}
   if(!Number.isFinite(Date.parse(res.expiresAt||''))||Date.parse(res.expiresAt!)<=now())return res
   // The native media element owns first playback. No details/full fetch/save
   // may delay this resolution, and background completion never swaps its src.
@@ -192,7 +194,7 @@ export function createDeviceAudioCache(base:MusicApi,options:DeviceCacheOptions=
      // HTML audio does not expose the bytes it buffered. Reuse HTTP cache when
      // possible; otherwise this can be one extra external GET, after buffering.
      const response=await fetcher(res.url!,{method:'GET',credentials:'omit',mode:'cors',cache:'force-cache',redirect:'error',signal:controller.signal});checkFill()
-     if(response.url&&!approvedURL(response.url,ctx.id))throw new Error('non_external_response')
+     if(response.url&&!approvedURL(response.url,res))throw new Error('non_external_response')
      if(response.status!==200||response.type==='opaque')throw new Error('incomplete_response')
      const bytes=await readFull(response,controller,ctx);checkFill()
      const full=validateCompleteMP3(bytes,canonicalMs)

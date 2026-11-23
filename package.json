@@ -12,10 +12,15 @@
     "serve": "vite --host 0.0.0.0",
     "build": "vue-tsc --noEmit && vite build",
     "test": "vitest run",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "standalone": "node --env-file-if-exists=.env.local server/local.mjs",
+    "db:migrate": "node --env-file-if-exists=.env.local server/migrate.mjs",
+    "test:standalone": "node --test tests/standalone*.test.mjs"
   },
   "dependencies": {
     "@noble/hashes": "^2.4.0",
+    "@unblockneteasemusic/server": "0.28.0",
+    "pg": "8.23.1",
     "pinia": "4.1.0",
     "vue": "3.5.45",
     "vue-router": "5.5.0"
