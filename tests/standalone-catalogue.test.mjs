@@ -31,3 +31,13 @@ test('Kuwo audio resolution fails closed on missing free-play permission', async
   })
   assert.deepEqual(requests, ['search.kuwo.cn'])
 })
+
+test('a known Kuwo track with no public lyrics gets an empty lyrics document', async t => {
+  t.mock.method(globalThis, 'fetch', async url => {
+    assert.equal(new URL(url).hostname, 'm.kuwo.cn')
+    return Response.json({ status: 301, data: null })
+  })
+  assert.deepEqual(await createCatalogue({}).lyrics({ id: 'kuwo:42', source: 'kuwo', externalID: '42' }), {
+    trackID: 'kuwo:42', lrc: '', translatedLrc: '',
+  })
+})

@@ -140,15 +140,20 @@ async function kuwoSearch(query, signal) {
   })
 }
 
-async function kuwoDetail(externalID, signal) {
+async function kuwoSongData(externalID, signal) {
   const result = await request('https://m.kuwo.cn', '/newh5/singles/songinfoandlrc', { musicId: externalID }, { signal })
   const track = kuwoTrack(result.data?.songinfo)
-  if (result.status !== 200 || track?.externalID !== externalID) {
-    const match = (await kuwoSearch(externalID, signal)).find(item => item.track.externalID === externalID)
-    if (!match) throw missing()
-    return { track: match.track, lyrics: [] }
-  }
-  return { track, lyrics: result.data.lrclist }
+  if (result.status === 200 && track?.externalID === externalID) return { track, lyrics: result.data.lrclist }
+}
+
+async function kuwoDetail(externalID, signal) {
+  const song = await kuwoSongData(externalID, signal)
+  if (song?.track.durationMs) return song.track
+  const query = song ? song.track.title + ' ' + song.track.artist : externalID
+  const match = (await kuwoSearch(query, signal)).find(item => item.track.externalID === externalID)
+  if (match) return { ...match.track, picture: match.track.picture || song?.track.picture || '' }
+  if (song) return song.track
+  throw missing()
 }
 
 async function netDetails(externalIDs, signal) {
@@ -326,15 +331,15 @@ export function createCatalogue(env) {
         tracks.push(...await netDetails(grouped.netease.slice(offset, offset + 200), signal))
       }
       for (let offset = 0; offset < grouped.kuwo.length; offset += 5) {
-        const group = await Promise.all(grouped.kuwo.slice(offset, offset + 5).map(id => kuwoDetail(id, signal)))
-        tracks.push(...group.map(item => item.track))
+        tracks.push(...await Promise.all(grouped.kuwo.slice(offset, offset + 5).map(id => kuwoDetail(id, signal))))
       }
       return tracks
     },
     async lyrics(track) {
       if (track.source === 'kuwo') {
-        const { lyrics } = await kuwoDetail(track.externalID)
-        const lrc = (lyrics ?? []).flatMap(line => {
+        const song = await kuwoSongData(track.externalID)
+        const lyrics = Array.isArray(song?.lyrics) ? song.lyrics : []
+        const lrc = lyrics.flatMap(line => {
           const seconds = Number(line.time)
           if (!Number.isFinite(seconds) || seconds < 0) return []
           return ['[' + String(Math.floor(seconds / 60)).padStart(2, '0') + ':' +

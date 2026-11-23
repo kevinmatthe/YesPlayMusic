@@ -42,7 +42,7 @@ function routeURL(req) {
   // Vercel's internal rewrite can expose the function pathname and query.
   if (url.pathname === '/api/music') {
     const paths = url.searchParams.getAll('__music_route')
-    if (paths.length === 1 && paths[0]) return { path: paths[0], params: url.searchParams, decoded: true }
+    if (paths.length === 1 && paths[0]) return { path: paths[0], params: url.searchParams }
   }
   throw missing()
 }
@@ -66,11 +66,11 @@ export function createMusicHandler(env, scope) {
 
   async function route(req, res) {
     const secure = checkOrigin(req, scope)
-    const { path, params, decoded } = routeURL(req)
+    const { path, params } = routeURL(req)
     const method = req.method
     let parts
     try {
-      parts = path.split('/').map(part => decoded ? part : decodeURIComponent(part))
+      parts = path.split('/').map(decodeURIComponent)
     } catch {
       throw invalid('invalid_path')
     }
